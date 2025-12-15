@@ -7,7 +7,7 @@ Long non-coding RNAs (lncRNAs) are increasingly implicated in autism spectrum di
 A schematic illustration of **Clean** is shown in the folowing.
 
 <p align="center">
-  <img src="https://github.com/zhangjunpeng411/Clean/blob/master/Clean_schematic_illustration.png" alt="Schematic illustration of Clean" border="0.1">
+  <img src="https://github.com/zhangjunpeng411/Clean/blob/main/Clean_schematic_illustration.png" alt="Schematic illustration of Clean" border="0.1">
 </p>
 
 According to brain biological contexts (i.e. diagnosis, region, age, sex and cell type), the snRNA-seq data of autism and normal brain cells is splitted into 48 data slices. For each data slice, metacells are built for removing technical noise and preserving the biological information of it. For the identified metacells, **Clean** uses trajectory inference to order them along a linear trajectory. Given the processed 48 data slices, **Clean** applies hidden causal inference and incorporates priori information of lncRNA targets to infer dynamic lncRNA causal regulation. Based on the identified dynamic lncRNA causal regulation, ""Clean"" further conducts heterogeneity analysis to capture conditional shifts in lncRNA regulation.
