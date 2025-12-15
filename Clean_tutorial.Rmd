@@ -1,0 +1,2104 @@
+---
+title: "Tutorial for inferring dynamic lncRNA regulation in autism spectrum disorder" 
+author: "\\
+    
+    Junpeng Zhang (zjp@dali.edu.cn)\\
+    
+    School of Engineering, Dali University"
+date: '`r Sys.Date()`'
+output:
+    BiocStyle::html_document:
+      toc: yes
+    BiocStyle::pdf_document:
+      toc: yes
+vignette: >
+    %\VignetteIndexEntry{Tutorial for inferring dynamic lncRNA regulation in autism spectrum disorder} 
+    %\VignetteEngine{knitr::rmarkdown} 
+    %\usepackage[utf8]{inputenc} 
+    %\VignetteEncoding{UTF-8}
+---
+
+```{r style, echo=FALSE, results="asis", message=FALSE}
+BiocStyle::markdown()
+knitr::opts_chunk$set(tidy = FALSE,
+    warning = FALSE,
+    message = FALSE)
+```
+
+# Introduction
+Conventional static causal inference methods fail to capture the dynamic interplay of lncRNAs across diverse brain biological contexts. Here, we develop a hidden causality-based method Clean to infer dynamic lncRNA causal regulation in autism spectrum disorder (ASD). In this tutorial, we will show how to apply Clean into new data.
+
+# Load required R packages
+Clean employs a hidden causality inference to delineate dynamic causal regulation by lncRNAs across diverse ASD biological contexts, such as diagnosis, region, age, sex, and cell type. Before applying Clean into new data, users need to install and load the the following 17 R packages. 
+
+```{r, eval=TRUE, include=TRUE}
+# Load required R packages
+library(doParallel)
+library(lmtest)
+library(pracma)
+library(robustbase)
+library(vars)
+library(dynlm)
+library(SuperCell)
+library(MetacellAnalysisToolkit)
+library(Seurat)
+library(patterncausality)
+library(dplyr)
+library(igraph)
+library(energy)
+library(SCORPIUS)
+library(e1071)    
+library(caret)    
+library(pROC)
+```
+
+# Data preparation
+For inferring dynamic causal regulation by lncRNAs, users should prepare matched lncRNA and mRNA expression data and putative lncRNA-target interactions (optional). In this tutorial, we use the largest single-nucleus RNA sequencing (snRNA-seq) data of cortical tissue including the anterior cingulated (ACC) and prefrontal cortex (PFC) regions from patients with autism (the expression data of 813 lncRNAs and 5,133 mRNAs exhibiting high expression levels across 104,559 cells, including 52,003 autism cells and 52,556 normal cells) as an example. Putative lncRNA-target interactions are predicted by using LncTar (http://www.cuilab.cn/lnctar). In total, a list of 105,649 lncRNA-mRNA interactions has been predicted.
+
+```{r, eval=TRUE, include=TRUE}
+# Load ASD dataset
+load("data/ASD_lncR_mR.RData")
+
+# Index of cause and effect for causal inference
+cause <- 5134:5946
+effect <- 1:5133
+
+# Priori information of lncRNA targets
+lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
+lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
+
+# Groundtruth of lncRNA targets
+lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
+lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
+```
+
+For convenience, the full list of our prepared single-nucleus RNA sequencing data in the Clean paper can be obtained from [here](https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link).
+
+# Delineating dynamic lncRNA regulation in ASD 
+The utility functions for delineating dynamic lncRNA regulation are collected in the source file: **Clean.R**. In this tutorial, we select three sequential causality methods (Clean, Granger, seqICP) to infer dynamic lncRNA regulation from ASD single-nucleus RNA sequencing data. The priori information of lncRNA targets has two cases: None (no priori information), LncTar (priori information of LncTar).
+
+## Step 1: Identifying metacells
+```{r, eval=TRUE, include=TRUE}
+# ASD
+ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_mRNAs_data, ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_mRNAs_data, ASD_lncRNAs_data)), ASD_SC30$membership)
+colnames(ASD_SC30_GE) <- paste("MC", seq(ncol(ASD_SC30_GE)), sep = "")
+
+# Normal
+Normal_SC30 <- SCimplify(as.matrix(rbind(Control_mRNAs_data, Control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_mRNAs_data, Control_lncRNAs_data)), Normal_SC30$membership)
+colnames(Normal_SC30_GE) <- paste("MC", seq(ncol(Normal_SC30_GE)), sep = "")
+
+# ACC_ASD
+ACC_ASD_SC30 <- SCimplify(as.matrix(rbind(ACC_ASD_mRNAs_data, ACC_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ACC_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ACC_ASD_mRNAs_data, ACC_ASD_lncRNAs_data)), ACC_ASD_SC30$membership)
+colnames(ACC_ASD_SC30_GE) <- paste("MC", seq(ncol(ACC_ASD_SC30_GE)), sep = "")
+
+# ACC_Normal
+ACC_Normal_SC30 <- SCimplify(as.matrix(rbind(ACC_control_mRNAs_data, ACC_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ACC_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(ACC_control_mRNAs_data, ACC_control_lncRNAs_data)), ACC_Normal_SC30$membership)
+colnames(ACC_Normal_SC30_GE) <- paste("MC", seq(ncol(ACC_Normal_SC30_GE)), sep = "")
+
+# PFC_ASD
+PFC_ASD_SC30 <- SCimplify(as.matrix(rbind(PFC_ASD_mRNAs_data, PFC_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+PFC_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(PFC_ASD_mRNAs_data, PFC_ASD_lncRNAs_data)), PFC_ASD_SC30$membership)
+colnames(PFC_ASD_SC30_GE) <- paste("MC", seq(ncol(PFC_ASD_SC30_GE)), sep = "")
+
+# PFC_Normal
+PFC_Normal_SC30 <- SCimplify(as.matrix(rbind(PFC_control_mRNAs_data, PFC_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+PFC_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(PFC_control_mRNAs_data, PFC_control_lncRNAs_data)), PFC_Normal_SC30$membership)
+colnames(PFC_Normal_SC30_GE) <- paste("MC", seq(ncol(PFC_Normal_SC30_GE)), sep = "")
+
+# Lower18_ASD
+Lower18_ASD_SC30 <- SCimplify(as.matrix(rbind(Lower18_ASD_mRNAs_data, Lower18_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Lower18_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(Lower18_ASD_mRNAs_data, Lower18_ASD_lncRNAs_data)), Lower18_ASD_SC30$membership)
+colnames(Lower18_ASD_SC30_GE) <- paste("MC", seq(ncol(Lower18_ASD_SC30_GE)), sep = "")
+
+# Lower18_Normal
+Lower18_Normal_SC30 <- SCimplify(as.matrix(rbind(Lower18_control_mRNAs_data, Lower18_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Lower18_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Lower18_control_mRNAs_data, Lower18_control_lncRNAs_data)), Lower18_Normal_SC30$membership)
+colnames(Lower18_Normal_SC30_GE) <- paste("MC", seq(ncol(Lower18_Normal_SC30_GE)), sep = "")
+
+# Larger18_ASD
+Larger18_ASD_SC30 <- SCimplify(as.matrix(rbind(Larger18_ASD_mRNAs_data, Larger18_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Larger18_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(Larger18_ASD_mRNAs_data, Larger18_ASD_lncRNAs_data)), Larger18_ASD_SC30$membership)
+colnames(Larger18_ASD_SC30_GE) <- paste("MC", seq(ncol(Larger18_ASD_SC30_GE)), sep = "")
+
+# Larger18_Normal
+Larger18_Normal_SC30 <- SCimplify(as.matrix(rbind(Larger18_control_mRNAs_data, Larger18_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Larger18_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Larger18_control_mRNAs_data, Larger18_control_lncRNAs_data)), Larger18_Normal_SC30$membership)
+colnames(Larger18_Normal_SC30_GE) <- paste("MC", seq(ncol(Larger18_Normal_SC30_GE)), sep = "")
+
+# Male_ASD
+Male_ASD_SC30 <- SCimplify(as.matrix(rbind(Male_ASD_mRNAs_data, Male_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Male_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(Male_ASD_mRNAs_data, Male_ASD_lncRNAs_data)), Male_ASD_SC30$membership)
+colnames(Male_ASD_SC30_GE) <- paste("MC", seq(ncol(Male_ASD_SC30_GE)), sep = "")
+
+# Male_Normal
+Male_Normal_SC30 <- SCimplify(as.matrix(rbind(Male_control_mRNAs_data, Male_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Male_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Male_control_mRNAs_data, Male_control_lncRNAs_data)), Male_Normal_SC30$membership)
+colnames(Male_Normal_SC30_GE) <- paste("MC", seq(ncol(Male_Normal_SC30_GE)), sep = "")
+
+# Female_ASD
+Female_ASD_SC30 <- SCimplify(as.matrix(rbind(Female_ASD_mRNAs_data, Female_ASD_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Female_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(Female_ASD_mRNAs_data, Female_ASD_lncRNAs_data)), Female_ASD_SC30$membership)
+colnames(Female_ASD_SC30_GE) <- paste("MC", seq(ncol(Female_ASD_SC30_GE)), sep = "")
+
+# Female_Normal
+Female_Normal_SC30 <- SCimplify(as.matrix(rbind(Female_control_mRNAs_data, Female_control_lncRNAs_data)),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Female_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Female_control_mRNAs_data, Female_control_lncRNAs_data)), Female_Normal_SC30$membership)
+colnames(Female_Normal_SC30_GE) <- paste("MC", seq(ncol(Female_Normal_SC30_GE)), sep = "")
+
+# NeuNRGNII_ASD
+NeuNRGNII_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["NeuNRGNII_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["NeuNRGNII_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+NeuNRGNII_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["NeuNRGNII_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["NeuNRGNII_ASD_lncRNAs_data"]])), NeuNRGNII_ASD_SC30$membership)
+colnames(NeuNRGNII_ASD_SC30_GE) <- paste("MC", seq(ncol(NeuNRGNII_ASD_SC30_GE)), sep = "")
+
+# NeuNRGNII_Normal
+NeuNRGNII_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["NeuNRGNII_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["NeuNRGNII_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+NeuNRGNII_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["NeuNRGNII_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["NeuNRGNII_control_lncRNAs_data"]])), NeuNRGNII_Normal_SC30$membership)
+colnames(NeuNRGNII_Normal_SC30_GE) <- paste("MC", seq(ncol(NeuNRGNII_Normal_SC30_GE)), sep = "")
+
+# L56_ASD
+L56_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["L56_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L56_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L56_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["L56_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L56_ASD_lncRNAs_data"]])), L56_ASD_SC30$membership)
+colnames(L56_ASD_SC30_GE) <- paste("MC", seq(ncol(L56_ASD_SC30_GE)), sep = "")
+
+# L56_Normal
+L56_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["L56_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L56_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L56_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["L56_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L56_control_lncRNAs_data"]])), L56_Normal_SC30$membership)
+colnames(L56_Normal_SC30_GE) <- paste("MC", seq(ncol(L56_Normal_SC30_GE)), sep = "")
+
+# Oligodendrocytes_ASD
+Oligodendrocytes_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["Oligodendrocytes_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Oligodendrocytes_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Oligodendrocytes_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["Oligodendrocytes_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Oligodendrocytes_ASD_lncRNAs_data"]])), Oligodendrocytes_ASD_SC30$membership)
+colnames(Oligodendrocytes_ASD_SC30_GE) <- paste("MC", seq(ncol(Oligodendrocytes_ASD_SC30_GE)), sep = "")
+
+# Oligodendrocytes_Normal
+Oligodendrocytes_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["Oligodendrocytes_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Oligodendrocytes_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Oligodendrocytes_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["Oligodendrocytes_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Oligodendrocytes_control_lncRNAs_data"]])), Oligodendrocytes_Normal_SC30$membership)
+colnames(Oligodendrocytes_Normal_SC30_GE) <- paste("MC", seq(ncol(Oligodendrocytes_Normal_SC30_GE)), sep = "")
+
+# OPC_ASD
+OPC_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["OPC_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["OPC_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+OPC_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["OPC_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["OPC_ASD_lncRNAs_data"]])), OPC_ASD_SC30$membership)
+colnames(OPC_ASD_SC30_GE) <- paste("MC", seq(ncol(OPC_ASD_SC30_GE)), sep = "")
+
+# OPC_Normal
+OPC_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["OPC_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["OPC_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+OPC_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["OPC_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["OPC_control_lncRNAs_data"]])), OPC_Normal_SC30$membership)
+colnames(OPC_Normal_SC30_GE) <- paste("MC", seq(ncol(OPC_Normal_SC30_GE)), sep = "")
+
+# ASTFB_ASD
+ASTFB_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["ASTFB_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["ASTFB_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ASTFB_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["ASTFB_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["ASTFB_ASD_lncRNAs_data"]])), ASTFB_ASD_SC30$membership)
+colnames(ASTFB_ASD_SC30_GE) <- paste("MC", seq(ncol(ASTFB_ASD_SC30_GE)), sep = "")
+
+# ASTFB_Normal
+ASTFB_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["ASTFB_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["ASTFB_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ASTFB_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["ASTFB_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["ASTFB_control_lncRNAs_data"]])), ASTFB_Normal_SC30$membership)
+colnames(ASTFB_Normal_SC30_GE) <- paste("MC", seq(ncol(ASTFB_Normal_SC30_GE)), sep = "")
+
+# Endothelial_ASD
+Endothelial_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["Endothelial_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Endothelial_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Endothelial_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["Endothelial_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Endothelial_ASD_lncRNAs_data"]])), Endothelial_ASD_SC30$membership)
+colnames(Endothelial_ASD_SC30_GE) <- paste("MC", seq(ncol(Endothelial_ASD_SC30_GE)), sep = "")
+
+# Endothelial_Normal
+Endothelial_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["Endothelial_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Endothelial_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Endothelial_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["Endothelial_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Endothelial_control_lncRNAs_data"]])), Endothelial_Normal_SC30$membership)
+colnames(Endothelial_Normal_SC30_GE) <- paste("MC", seq(ncol(Endothelial_Normal_SC30_GE)), sep = "")
+
+# Microglia_ASD
+Microglia_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["Microglia_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Microglia_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Microglia_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["Microglia_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Microglia_ASD_lncRNAs_data"]])), Microglia_ASD_SC30$membership)
+colnames(Microglia_ASD_SC30_GE) <- paste("MC", seq(ncol(Microglia_ASD_SC30_GE)), sep = "")
+
+# Microglia_Normal
+Microglia_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["Microglia_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Microglia_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Microglia_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["Microglia_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Microglia_control_lncRNAs_data"]])), Microglia_Normal_SC30$membership)
+colnames(Microglia_Normal_SC30_GE) <- paste("MC", seq(ncol(Microglia_Normal_SC30_GE)), sep = "")
+
+# NeuNRGNI_ASD
+NeuNRGNI_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["NeuNRGNI_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["NeuNRGNI_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+NeuNRGNI_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["NeuNRGNI_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["NeuNRGNI_ASD_lncRNAs_data"]])), NeuNRGNI_ASD_SC30$membership)
+colnames(NeuNRGNI_ASD_SC30_GE) <- paste("MC", seq(ncol(NeuNRGNI_ASD_SC30_GE)), sep = "")
+
+# NeuNRGNI_Normal
+NeuNRGNI_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["NeuNRGNI_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["NeuNRGNI_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+NeuNRGNI_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["NeuNRGNI_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["NeuNRGNI_control_lncRNAs_data"]])), NeuNRGNI_Normal_SC30$membership)
+colnames(NeuNRGNI_Normal_SC30_GE) <- paste("MC", seq(ncol(NeuNRGNI_Normal_SC30_GE)), sep = "")
+
+# INVIP_ASD
+INVIP_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["INVIP_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INVIP_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INVIP_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["INVIP_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INVIP_ASD_lncRNAs_data"]])), INVIP_ASD_SC30$membership)
+colnames(INVIP_ASD_SC30_GE) <- paste("MC", seq(ncol(INVIP_ASD_SC30_GE)), sep = "")
+
+# INVIP_Normal
+INVIP_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["INVIP_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INVIP_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INVIP_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["INVIP_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INVIP_control_lncRNAs_data"]])), INVIP_Normal_SC30$membership)
+colnames(INVIP_Normal_SC30_GE) <- paste("MC", seq(ncol(INVIP_Normal_SC30_GE)), sep = "")
+
+# L56CC_ASD
+L56CC_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["L56CC_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L56CC_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L56CC_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["L56CC_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L56CC_ASD_lncRNAs_data"]])), L56CC_ASD_SC30$membership)
+colnames(L56CC_ASD_SC30_GE) <- paste("MC", seq(ncol(L56CC_ASD_SC30_GE)), sep = "")
+
+# L56CC_Normal
+L56CC_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["L56CC_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L56CC_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L56CC_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["L56CC_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L56CC_control_lncRNAs_data"]])), L56CC_Normal_SC30$membership)
+colnames(L56CC_Normal_SC30_GE) <- paste("MC", seq(ncol(L56CC_Normal_SC30_GE)), sep = "")
+
+# INSV2C_ASD
+INSV2C_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["INSV2C_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INSV2C_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INSV2C_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["INSV2C_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INSV2C_ASD_lncRNAs_data"]])), INSV2C_ASD_SC30$membership)
+colnames(INSV2C_ASD_SC30_GE) <- paste("MC", seq(ncol(INSV2C_ASD_SC30_GE)), sep = "")
+
+# INSV2C_Normal
+INSV2C_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["INSV2C_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INSV2C_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INSV2C_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["INSV2C_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INSV2C_control_lncRNAs_data"]])), INSV2C_Normal_SC30$membership)
+colnames(INSV2C_Normal_SC30_GE) <- paste("MC", seq(ncol(INSV2C_Normal_SC30_GE)), sep = "")
+
+# L23_ASD
+L23_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["L23_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L23_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L23_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["L23_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L23_ASD_lncRNAs_data"]])), L23_ASD_SC30$membership)
+colnames(L23_ASD_SC30_GE) <- paste("MC", seq(ncol(L23_ASD_SC30_GE)), sep = "")
+
+# L23_Normal
+L23_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["L23_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L23_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L23_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["L23_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L23_control_lncRNAs_data"]])), L23_Normal_SC30$membership)
+colnames(L23_Normal_SC30_GE) <- paste("MC", seq(ncol(L23_Normal_SC30_GE)), sep = "")
+
+# INPV_ASD
+INPV_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["INPV_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INPV_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INPV_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["INPV_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INPV_ASD_lncRNAs_data"]])), INPV_ASD_SC30$membership)
+colnames(INPV_ASD_SC30_GE) <- paste("MC", seq(ncol(INPV_ASD_SC30_GE)), sep = "")
+
+# INPV_Normal
+INPV_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["INPV_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INPV_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INPV_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["INPV_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INPV_control_lncRNAs_data"]])), INPV_Normal_SC30$membership)
+colnames(INPV_Normal_SC30_GE) <- paste("MC", seq(ncol(INPV_Normal_SC30_GE)), sep = "")
+
+# L4_ASD
+L4_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["L4_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L4_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L4_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["L4_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["L4_ASD_lncRNAs_data"]])), L4_ASD_SC30$membership)
+colnames(L4_ASD_SC30_GE) <- paste("MC", seq(ncol(L4_ASD_SC30_GE)), sep = "")
+
+# L4_Normal
+L4_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["L4_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L4_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+L4_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["L4_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["L4_control_lncRNAs_data"]])), L4_Normal_SC30$membership)
+colnames(L4_Normal_SC30_GE) <- paste("MC", seq(ncol(L4_Normal_SC30_GE)), sep = "")
+
+# INSST_ASD
+INSST_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["INSST_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INSST_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INSST_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["INSST_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["INSST_ASD_lncRNAs_data"]])), INSST_ASD_SC30$membership)
+colnames(INSST_ASD_SC30_GE) <- paste("MC", seq(ncol(INSST_ASD_SC30_GE)), sep = "")
+
+# INSST_Normal
+INSST_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["INSST_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INSST_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+INSST_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["INSST_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["INSST_control_lncRNAs_data"]])), INSST_Normal_SC30$membership)
+colnames(INSST_Normal_SC30_GE) <- paste("MC", seq(ncol(INSST_Normal_SC30_GE)), sep = "")
+
+# Neumat_ASD
+Neumat_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["Neumat_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Neumat_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Neumat_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["Neumat_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["Neumat_ASD_lncRNAs_data"]])), Neumat_ASD_SC30$membership)
+colnames(Neumat_ASD_SC30_GE) <- paste("MC", seq(ncol(Neumat_ASD_SC30_GE)), sep = "")
+
+# Neumat_Normal
+Neumat_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["Neumat_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Neumat_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+Neumat_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["Neumat_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["Neumat_control_lncRNAs_data"]])), Neumat_Normal_SC30$membership)
+colnames(Neumat_Normal_SC30_GE) <- paste("MC", seq(ncol(Neumat_Normal_SC30_GE)), sep = "")
+
+# ASTPP_ASD
+ASTPP_ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_celltype_mRNAs_list[["ASTPP_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["ASTPP_ASD_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ASTPP_ASD_SC30_GE <- supercell_GE(as.matrix(rbind(ASD_celltype_mRNAs_list[["ASTPP_ASD_mRNAs_data"]], ASD_celltype_lncRNAs_list[["ASTPP_ASD_lncRNAs_data"]])), ASTPP_ASD_SC30$membership)
+colnames(ASTPP_ASD_SC30_GE) <- paste("MC", seq(ncol(ASTPP_ASD_SC30_GE)), sep = "")
+
+# ASTPP_Normal
+ASTPP_Normal_SC30 <- SCimplify(as.matrix(rbind(Control_celltype_mRNAs_list[["ASTPP_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["ASTPP_control_lncRNAs_data"]])),  # gene expression matrix 
+                      k.knn = 5, # number of nearest neighbors to build kNN network
+                      gamma = 30, # graining level
+                      n.var.genes = 2000 # number of the top variable genes to use for dimentionality reduction
+		      )
+ASTPP_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list[["ASTPP_control_mRNAs_data"]], Control_celltype_lncRNAs_list[["ASTPP_control_lncRNAs_data"]])), ASTPP_Normal_SC30$membership)
+colnames(ASTPP_Normal_SC30_GE) <- paste("MC", seq(ncol(ASTPP_Normal_SC30_GE)), sep = "")
+```
+
+## Step 2: Cell trajectory inference
+```{r, eval=TRUE, include=TRUE}
+# ASD and Normal
+ASD_space <- reduce_dimensionality(t(as.matrix(ASD_SC30_GE)), ndim =2)
+Normal_space <- reduce_dimensionality(t(as.matrix(Normal_SC30_GE)), ndim = 2)
+
+ASD_model <- infer_trajectory(ASD_space)
+Normal_model <- infer_trajectory(Normal_space)
+
+ASD_model_data <- t(as.matrix(ASD_SC30_GE))[match(names(sort(ASD_model$time)), colnames(ASD_SC30_GE)), ]
+Normal_model_data <- t(as.matrix(Normal_SC30_GE))[match(names(sort(Normal_model$time)), colnames(Normal_SC30_GE)), ]
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_space <- reduce_dimensionality(t(as.matrix(ACC_ASD_SC30_GE)), ndim =2)
+ACC_Normal_space <- reduce_dimensionality(t(as.matrix(ACC_Normal_SC30_GE)), ndim = 2)
+PFC_ASD_space <- reduce_dimensionality(t(as.matrix(PFC_ASD_SC30_GE)), ndim =2)
+PFC_Normal_space <- reduce_dimensionality(t(as.matrix(PFC_Normal_SC30_GE)), ndim = 2)
+
+ACC_ASD_model <- infer_trajectory(ACC_ASD_space)
+ACC_Normal_model <- infer_trajectory(ACC_Normal_space)
+PFC_ASD_model <- infer_trajectory(PFC_ASD_space)
+PFC_Normal_model <- infer_trajectory(PFC_Normal_space)
+
+ACC_ASD_model_data <- t(as.matrix(ACC_ASD_SC30_GE))[match(names(sort(ACC_ASD_model$time)), colnames(ACC_ASD_SC30_GE)), ]
+ACC_Normal_model_data <- t(as.matrix(ACC_Normal_SC30_GE))[match(names(sort(ACC_Normal_model$time)), colnames(ACC_Normal_SC30_GE)), ]
+PFC_ASD_model_data <- t(as.matrix(PFC_ASD_SC30_GE))[match(names(sort(PFC_ASD_model$time)), colnames(PFC_ASD_SC30_GE)), ]
+PFC_Normal_model_data <- t(as.matrix(PFC_Normal_SC30_GE))[match(names(sort(PFC_Normal_model$time)), colnames(PFC_Normal_SC30_GE)), ]
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_space <- reduce_dimensionality(t(as.matrix(Lower18_ASD_SC30_GE)), ndim =2)
+Lower18_Normal_space <- reduce_dimensionality(t(as.matrix(Lower18_Normal_SC30_GE)), ndim = 2)
+Larger18_ASD_space <- reduce_dimensionality(t(as.matrix(Larger18_ASD_SC30_GE)), ndim =2)
+Larger18_Normal_space <- reduce_dimensionality(t(as.matrix(Larger18_Normal_SC30_GE)), ndim = 2)
+
+Lower18_ASD_model <- infer_trajectory(Lower18_ASD_space)
+Lower18_Normal_model <- infer_trajectory(Lower18_Normal_space)
+Larger18_ASD_model <- infer_trajectory(Larger18_ASD_space)
+Larger18_Normal_model <- infer_trajectory(Larger18_Normal_space)
+
+Lower18_ASD_model_data <- t(as.matrix(Lower18_ASD_SC30_GE))[match(names(sort(Lower18_ASD_model$time)), colnames(Lower18_ASD_SC30_GE)), ]
+Lower18_Normal_model_data <- t(as.matrix(Lower18_Normal_SC30_GE))[match(names(sort(Lower18_Normal_model$time)), colnames(Lower18_Normal_SC30_GE)), ]
+Larger18_ASD_model_data <- t(as.matrix(Larger18_ASD_SC30_GE))[match(names(sort(Larger18_ASD_model$time)), colnames(Larger18_ASD_SC30_GE)), ]
+Larger18_Normal_model_data <- t(as.matrix(Larger18_Normal_SC30_GE))[match(names(sort(Larger18_Normal_model$time)), colnames(Larger18_Normal_SC30_GE)), ]
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_space <- reduce_dimensionality(t(as.matrix(Male_ASD_SC30_GE)), ndim =2)
+Male_Normal_space <- reduce_dimensionality(t(as.matrix(Male_Normal_SC30_GE)), ndim = 2)
+Female_ASD_space <- reduce_dimensionality(t(as.matrix(Female_ASD_SC30_GE)), ndim =2)
+Female_Normal_space <- reduce_dimensionality(t(as.matrix(Female_Normal_SC30_GE)), ndim = 2)
+
+Male_ASD_model <- infer_trajectory(Male_ASD_space)
+Male_Normal_model <- infer_trajectory(Male_Normal_space)
+Female_ASD_model <- infer_trajectory(Female_ASD_space)
+Female_Normal_model <- infer_trajectory(Female_Normal_space)
+
+Male_ASD_model_data <- t(as.matrix(Male_ASD_SC30_GE))[match(names(sort(Male_ASD_model$time)), colnames(Male_ASD_SC30_GE)), ]
+Male_Normal_model_data <- t(as.matrix(Male_Normal_SC30_GE))[match(names(sort(Male_Normal_model$time)), colnames(Male_Normal_SC30_GE)), ]
+Female_ASD_model_data <- t(as.matrix(Female_ASD_SC30_GE))[match(names(sort(Female_ASD_model$time)), colnames(Female_ASD_SC30_GE)), ]
+Female_Normal_model_data <- t(as.matrix(Female_Normal_SC30_GE))[match(names(sort(Female_Normal_model$time)), colnames(Female_Normal_SC30_GE)), ]
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_space <- reduce_dimensionality(t(as.matrix(NeuNRGNII_ASD_SC30_GE)), ndim =2)
+NeuNRGNII_Normal_space <- reduce_dimensionality(t(as.matrix(NeuNRGNII_Normal_SC30_GE)), ndim = 2)
+
+NeuNRGNII_ASD_model <- infer_trajectory(NeuNRGNII_ASD_space)
+NeuNRGNII_Normal_model <- infer_trajectory(NeuNRGNII_Normal_space)
+
+NeuNRGNII_ASD_model_data <- t(as.matrix(NeuNRGNII_ASD_SC30_GE))[match(names(sort(NeuNRGNII_ASD_model$time)), colnames(NeuNRGNII_ASD_SC30_GE)), ]
+NeuNRGNII_Normal_model_data <- t(as.matrix(NeuNRGNII_Normal_SC30_GE))[match(names(sort(NeuNRGNII_Normal_model$time)), colnames(NeuNRGNII_Normal_SC30_GE)), ]
+
+# L56_ASD, L56_Normal
+L56_ASD_space <- reduce_dimensionality(t(as.matrix(L56_ASD_SC30_GE)), ndim =2)
+L56_Normal_space <- reduce_dimensionality(t(as.matrix(L56_Normal_SC30_GE)), ndim = 2)
+
+L56_ASD_model <- infer_trajectory(L56_ASD_space)
+L56_Normal_model <- infer_trajectory(L56_Normal_space)
+
+L56_ASD_model_data <- t(as.matrix(L56_ASD_SC30_GE))[match(names(sort(L56_ASD_model$time)), colnames(L56_ASD_SC30_GE)), ]
+L56_Normal_model_data <- t(as.matrix(L56_Normal_SC30_GE))[match(names(sort(L56_Normal_model$time)), colnames(L56_Normal_SC30_GE)), ]
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_space <- reduce_dimensionality(t(as.matrix(Oligodendrocytes_ASD_SC30_GE)), ndim =2)
+Oligodendrocytes_Normal_space <- reduce_dimensionality(t(as.matrix(Oligodendrocytes_Normal_SC30_GE)), ndim = 2)
+
+Oligodendrocytes_ASD_model <- infer_trajectory(Oligodendrocytes_ASD_space)
+Oligodendrocytes_Normal_model <- infer_trajectory(Oligodendrocytes_Normal_space)
+
+Oligodendrocytes_ASD_model_data <- t(as.matrix(Oligodendrocytes_ASD_SC30_GE))[match(names(sort(Oligodendrocytes_ASD_model$time)), colnames(Oligodendrocytes_ASD_SC30_GE)), ]
+Oligodendrocytes_Normal_model_data <- t(as.matrix(Oligodendrocytes_Normal_SC30_GE))[match(names(sort(Oligodendrocytes_Normal_model$time)), colnames(Oligodendrocytes_Normal_SC30_GE)), ]
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_space <- reduce_dimensionality(t(as.matrix(OPC_ASD_SC30_GE)), ndim =2)
+OPC_Normal_space <- reduce_dimensionality(t(as.matrix(OPC_Normal_SC30_GE)), ndim = 2)
+
+OPC_ASD_model <- infer_trajectory(OPC_ASD_space)
+OPC_Normal_model <- infer_trajectory(OPC_Normal_space)
+
+OPC_ASD_model_data <- t(as.matrix(OPC_ASD_SC30_GE))[match(names(sort(OPC_ASD_model$time)), colnames(OPC_ASD_SC30_GE)), ]
+OPC_Normal_model_data <- t(as.matrix(OPC_Normal_SC30_GE))[match(names(sort(OPC_Normal_model$time)), colnames(OPC_Normal_SC30_GE)), ]
+
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_space <- reduce_dimensionality(t(as.matrix(ASTFB_ASD_SC30_GE)), ndim =2)
+ASTFB_Normal_space <- reduce_dimensionality(t(as.matrix(ASTFB_Normal_SC30_GE)), ndim = 2)
+
+ASTFB_ASD_model <- infer_trajectory(ASTFB_ASD_space)
+ASTFB_Normal_model <- infer_trajectory(ASTFB_Normal_space)
+
+ASTFB_ASD_model_data <- t(as.matrix(ASTFB_ASD_SC30_GE))[match(names(sort(ASTFB_ASD_model$time)), colnames(ASTFB_ASD_SC30_GE)), ]
+ASTFB_Normal_model_data <- t(as.matrix(ASTFB_Normal_SC30_GE))[match(names(sort(ASTFB_Normal_model$time)), colnames(ASTFB_Normal_SC30_GE)), ]
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_space <- reduce_dimensionality(t(as.matrix(Endothelial_ASD_SC30_GE)), ndim =2)
+Endothelial_Normal_space <- reduce_dimensionality(t(as.matrix(Endothelial_Normal_SC30_GE)), ndim = 2)
+
+Endothelial_ASD_model <- infer_trajectory(Endothelial_ASD_space)
+Endothelial_Normal_model <- infer_trajectory(Endothelial_Normal_space)
+
+Endothelial_ASD_model_data <- t(as.matrix(Endothelial_ASD_SC30_GE))[match(names(sort(Endothelial_ASD_model$time)), colnames(Endothelial_ASD_SC30_GE)), ]
+Endothelial_Normal_model_data <- t(as.matrix(Endothelial_Normal_SC30_GE))[match(names(sort(Endothelial_Normal_model$time)), colnames(Endothelial_Normal_SC30_GE)), ]
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_space <- reduce_dimensionality(t(as.matrix(Microglia_ASD_SC30_GE)), ndim =2)
+Microglia_Normal_space <- reduce_dimensionality(t(as.matrix(Microglia_Normal_SC30_GE)), ndim = 2)
+
+Microglia_ASD_model <- infer_trajectory(Microglia_ASD_space)
+Microglia_Normal_model <- infer_trajectory(Microglia_Normal_space)
+
+Microglia_ASD_model_data <- t(as.matrix(Microglia_ASD_SC30_GE))[match(names(sort(Microglia_ASD_model$time)), colnames(Microglia_ASD_SC30_GE)), ]
+Microglia_Normal_model_data <- t(as.matrix(Microglia_Normal_SC30_GE))[match(names(sort(Microglia_Normal_model$time)), colnames(Microglia_Normal_SC30_GE)), ]
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_space <- reduce_dimensionality(t(as.matrix(NeuNRGNI_ASD_SC30_GE)), ndim =2)
+NeuNRGNI_Normal_space <- reduce_dimensionality(t(as.matrix(NeuNRGNI_Normal_SC30_GE)), ndim = 2)
+
+NeuNRGNI_ASD_model <- infer_trajectory(NeuNRGNI_ASD_space)
+NeuNRGNI_Normal_model <- infer_trajectory(NeuNRGNI_Normal_space)
+
+NeuNRGNI_ASD_model_data <- t(as.matrix(NeuNRGNI_ASD_SC30_GE))[match(names(sort(NeuNRGNI_ASD_model$time)), colnames(NeuNRGNI_ASD_SC30_GE)), ]
+NeuNRGNI_Normal_model_data <- t(as.matrix(NeuNRGNI_Normal_SC30_GE))[match(names(sort(NeuNRGNI_Normal_model$time)), colnames(NeuNRGNI_Normal_SC30_GE)), ]
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_space <- reduce_dimensionality(t(as.matrix(INVIP_ASD_SC30_GE)), ndim =2)
+INVIP_Normal_space <- reduce_dimensionality(t(as.matrix(INVIP_Normal_SC30_GE)), ndim = 2)
+
+INVIP_ASD_model <- infer_trajectory(INVIP_ASD_space)
+INVIP_Normal_model <- infer_trajectory(INVIP_Normal_space)
+
+INVIP_ASD_model_data <- t(as.matrix(INVIP_ASD_SC30_GE))[match(names(sort(INVIP_ASD_model$time)), colnames(INVIP_ASD_SC30_GE)), ]
+INVIP_Normal_model_data <- t(as.matrix(INVIP_Normal_SC30_GE))[match(names(sort(INVIP_Normal_model$time)), colnames(INVIP_Normal_SC30_GE)), ]
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_space <- reduce_dimensionality(t(as.matrix(L56CC_ASD_SC30_GE)), ndim =2)
+L56CC_Normal_space <- reduce_dimensionality(t(as.matrix(L56CC_Normal_SC30_GE)), ndim = 2)
+
+L56CC_ASD_model <- infer_trajectory(L56CC_ASD_space)
+L56CC_Normal_model <- infer_trajectory(L56CC_Normal_space)
+
+L56CC_ASD_model_data <- t(as.matrix(L56CC_ASD_SC30_GE))[match(names(sort(L56CC_ASD_model$time)), colnames(L56CC_ASD_SC30_GE)), ]
+L56CC_Normal_model_data <- t(as.matrix(L56CC_Normal_SC30_GE))[match(names(sort(L56CC_Normal_model$time)), colnames(L56CC_Normal_SC30_GE)), ]
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_space <- reduce_dimensionality(t(as.matrix(INSV2C_ASD_SC30_GE)), ndim =2)
+INSV2C_Normal_space <- reduce_dimensionality(t(as.matrix(INSV2C_Normal_SC30_GE)), ndim = 2)
+
+INSV2C_ASD_model <- infer_trajectory(INSV2C_ASD_space)
+INSV2C_Normal_model <- infer_trajectory(INSV2C_Normal_space)
+
+INSV2C_ASD_model_data <- t(as.matrix(INSV2C_ASD_SC30_GE))[match(names(sort(INSV2C_ASD_model$time)), colnames(INSV2C_ASD_SC30_GE)), ]
+INSV2C_Normal_model_data <- t(as.matrix(INSV2C_Normal_SC30_GE))[match(names(sort(INSV2C_Normal_model$time)), colnames(INSV2C_Normal_SC30_GE)), ]
+
+# L23_ASD, L23_Normal
+L23_ASD_space <- reduce_dimensionality(t(as.matrix(L23_ASD_SC30_GE)), ndim =2)
+L23_Normal_space <- reduce_dimensionality(t(as.matrix(L23_Normal_SC30_GE)), ndim = 2)
+
+L23_ASD_model <- infer_trajectory(L23_ASD_space)
+L23_Normal_model <- infer_trajectory(L23_Normal_space)
+
+L23_ASD_model_data <- t(as.matrix(L23_ASD_SC30_GE))[match(names(sort(L23_ASD_model$time)), colnames(L23_ASD_SC30_GE)), ]
+L23_Normal_model_data <- t(as.matrix(L23_Normal_SC30_GE))[match(names(sort(L23_Normal_model$time)), colnames(L23_Normal_SC30_GE)), ]
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_space <- reduce_dimensionality(t(as.matrix(INPV_ASD_SC30_GE)), ndim =2)
+INPV_Normal_space <- reduce_dimensionality(t(as.matrix(INPV_Normal_SC30_GE)), ndim = 2)
+
+INPV_ASD_model <- infer_trajectory(INPV_ASD_space)
+INPV_Normal_model <- infer_trajectory(INPV_Normal_space)
+
+INPV_ASD_model_data <- t(as.matrix(INPV_ASD_SC30_GE))[match(names(sort(INPV_ASD_model$time)), colnames(INPV_ASD_SC30_GE)), ]
+INPV_Normal_model_data <- t(as.matrix(INPV_Normal_SC30_GE))[match(names(sort(INPV_Normal_model$time)), colnames(INPV_Normal_SC30_GE)), ]
+
+# L4_ASD, L4_Normal
+L4_ASD_space <- reduce_dimensionality(t(as.matrix(L4_ASD_SC30_GE)), ndim =2)
+L4_Normal_space <- reduce_dimensionality(t(as.matrix(L4_Normal_SC30_GE)), ndim = 2)
+
+L4_ASD_model <- infer_trajectory(L4_ASD_space)
+L4_Normal_model <- infer_trajectory(L4_Normal_space)
+
+L4_ASD_model_data <- t(as.matrix(L4_ASD_SC30_GE))[match(names(sort(L4_ASD_model$time)), colnames(L4_ASD_SC30_GE)), ]
+L4_Normal_model_data <- t(as.matrix(L4_Normal_SC30_GE))[match(names(sort(L4_Normal_model$time)), colnames(L4_Normal_SC30_GE)), ]
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_space <- reduce_dimensionality(t(as.matrix(INSST_ASD_SC30_GE)), ndim =2)
+INSST_Normal_space <- reduce_dimensionality(t(as.matrix(INSST_Normal_SC30_GE)), ndim = 2)
+
+INSST_ASD_model <- infer_trajectory(INSST_ASD_space)
+INSST_Normal_model <- infer_trajectory(INSST_Normal_space)
+
+INSST_ASD_model_data <- t(as.matrix(INSST_ASD_SC30_GE))[match(names(sort(INSST_ASD_model$time)), colnames(INSST_ASD_SC30_GE)), ]
+INSST_Normal_model_data <- t(as.matrix(INSST_Normal_SC30_GE))[match(names(sort(INSST_Normal_model$time)), colnames(INSST_Normal_SC30_GE)), ]
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_space <- reduce_dimensionality(t(as.matrix(Neumat_ASD_SC30_GE)), ndim =2)
+Neumat_Normal_space <- reduce_dimensionality(t(as.matrix(Neumat_Normal_SC30_GE)), ndim = 2)
+
+Neumat_ASD_model <- infer_trajectory(Neumat_ASD_space)
+Neumat_Normal_model <- infer_trajectory(Neumat_Normal_space)
+
+Neumat_ASD_model_data <- t(as.matrix(Neumat_ASD_SC30_GE))[match(names(sort(Neumat_ASD_model$time)), colnames(Neumat_ASD_SC30_GE)), ]
+Neumat_Normal_model_data <- t(as.matrix(Neumat_Normal_SC30_GE))[match(names(sort(Neumat_Normal_model$time)), colnames(Neumat_Normal_SC30_GE)), ]
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_space <- reduce_dimensionality(t(as.matrix(ASTPP_ASD_SC30_GE)), ndim =2)
+ASTPP_Normal_space <- reduce_dimensionality(t(as.matrix(ASTPP_Normal_SC30_GE)), ndim = 2)
+
+ASTPP_ASD_model <- infer_trajectory(ASTPP_ASD_space)
+ASTPP_Normal_model <- infer_trajectory(ASTPP_Normal_space)
+
+ASTPP_ASD_model_data <- t(as.matrix(ASTPP_ASD_SC30_GE))[match(names(sort(ASTPP_ASD_model$time)), colnames(ASTPP_ASD_SC30_GE)), ]
+ASTPP_Normal_model_data <- t(as.matrix(ASTPP_Normal_SC30_GE))[match(names(sort(ASTPP_Normal_model$time)), colnames(ASTPP_Normal_SC30_GE)), ]
+```
+## Step 3: Causal inference using Clean, Granger, seqICP
+```{r, eval=TRUE, include=TRUE}
+################################################################################  Clean application ############################################################################
+# ASD and Normal
+ASD_res_darkcausality <- darkcausality_parallel(ASD_model_data, cause, effect, num.cores = 48)
+Normal_res_darkcausality <- darkcausality_parallel(Normal_model_data, cause, effect, num.cores = 48)
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_res_darkcausality <- darkcausality_parallel(ACC_ASD_model_data, cause, effect, num.cores = 48)
+ACC_Normal_res_darkcausality <- darkcausality_parallel(ACC_Normal_model_data, cause, effect, num.cores = 48)
+PFC_ASD_res_darkcausality <- darkcausality_parallel(PFC_ASD_model_data, cause, effect, num.cores = 48)
+PFC_Normal_res_darkcausality <- darkcausality_parallel(PFC_Normal_model_data, cause, effect, num.cores = 48)
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_res_darkcausality <- darkcausality_parallel(Lower18_ASD_model_data, cause, effect, num.cores = 48)
+Lower18_Normal_res_darkcausality <- darkcausality_parallel(Lower18_Normal_model_data, cause, effect, num.cores = 48)
+Larger18_ASD_res_darkcausality <- darkcausality_parallel(Larger18_ASD_model_data, cause, effect, num.cores = 48)
+Larger18_Normal_res_darkcausality <- darkcausality_parallel(Larger18_Normal_model_data, cause, effect, num.cores = 48)
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_res_darkcausality <- darkcausality_parallel(Male_ASD_model_data, cause, effect, num.cores = 48)
+Male_Normal_res_darkcausality <- darkcausality_parallel(Male_Normal_model_data, cause, effect, num.cores = 48)
+Female_ASD_res_darkcausality <- darkcausality_parallel(Female_ASD_model_data, cause, effect, num.cores = 48)
+Female_Normal_res_darkcausality <- darkcausality_parallel(Female_Normal_model_data, cause, effect, num.cores = 48)
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_res_darkcausality <- darkcausality_parallel(NeuNRGNII_ASD_model_data, cause, effect, num.cores = 48)
+NeuNRGNII_Normal_res_darkcausality <- darkcausality_parallel(NeuNRGNII_Normal_model_data, cause, effect, num.cores = 48)
+
+# L56_ASD, L56_Normal
+L56_ASD_res_darkcausality <- darkcausality_parallel(L56_ASD_model_data, cause, effect, num.cores = 48)
+L56_Normal_res_darkcausality <- darkcausality_parallel(L56_Normal_model_data, cause, effect, num.cores = 48)
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_res_darkcausality <- darkcausality_parallel(Oligodendrocytes_ASD_model_data, cause, effect, num.cores = 48)
+Oligodendrocytes_Normal_res_darkcausality <- darkcausality_parallel(Oligodendrocytes_Normal_model_data, cause, effect, num.cores = 48)
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_res_darkcausality <- darkcausality_parallel(OPC_ASD_model_data, cause, effect, num.cores = 48)
+OPC_Normal_res_darkcausality <- darkcausality_parallel(OPC_Normal_model_data, cause, effect, num.cores = 48)
+ 
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_res_darkcausality <- darkcausality_parallel(ASTFB_ASD_model_data, cause, effect, num.cores = 48)
+ASTFB_Normal_res_darkcausality <- darkcausality_parallel(ASTFB_Normal_model_data, cause, effect, num.cores = 48)
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_res_darkcausality <- darkcausality_parallel(Endothelial_ASD_model_data, cause, effect, num.cores = 48)
+Endothelial_Normal_res_darkcausality <- darkcausality_parallel(Endothelial_Normal_model_data, cause, effect, num.cores = 48)
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_res_darkcausality <- darkcausality_parallel(Microglia_ASD_model_data, cause, effect, num.cores = 48)
+Microglia_Normal_res_darkcausality <- darkcausality_parallel(Microglia_Normal_model_data, cause, effect, num.cores = 48)
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_res_darkcausality <- darkcausality_parallel(NeuNRGNI_ASD_model_data, cause, effect, num.cores = 48)
+NeuNRGNI_Normal_res_darkcausality <- darkcausality_parallel(NeuNRGNI_Normal_model_data, cause, effect, num.cores = 48)
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_res_darkcausality <- darkcausality_parallel(INVIP_ASD_model_data, cause, effect, num.cores = 48)
+INVIP_Normal_res_darkcausality <- darkcausality_parallel(INVIP_Normal_model_data, cause, effect, num.cores = 48)
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_res_darkcausality <- darkcausality_parallel(L56CC_ASD_model_data, cause, effect, num.cores = 48)
+L56CC_Normal_res_darkcausality <- darkcausality_parallel(L56CC_Normal_model_data, cause, effect, num.cores = 48)
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_res_darkcausality <- darkcausality_parallel(INSV2C_ASD_model_data, cause, effect, num.cores = 48)
+INSV2C_Normal_res_darkcausality <- darkcausality_parallel(INSV2C_Normal_model_data, cause, effect, num.cores = 48)
+
+# L23_ASD, L23_Normal
+L23_ASD_res_darkcausality <- darkcausality_parallel(L23_ASD_model_data, cause, effect, num.cores = 48)
+L23_Normal_res_darkcausality <- darkcausality_parallel(L23_Normal_model_data, cause, effect, num.cores = 48)
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_res_darkcausality <- darkcausality_parallel(INPV_ASD_model_data, cause, effect, num.cores = 48)
+INPV_Normal_res_darkcausality <- darkcausality_parallel(INPV_Normal_model_data, cause, effect, num.cores = 48)
+
+# L4_ASD, L4_Normal
+L4_ASD_res_darkcausality <- darkcausality_parallel(L4_ASD_model_data, cause, effect, num.cores = 48)
+L4_Normal_res_darkcausality <- darkcausality_parallel(L4_Normal_model_data, cause, effect, num.cores = 48)
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_res_darkcausality <- darkcausality_parallel(INSST_ASD_model_data, cause, effect, num.cores = 48)
+INSST_Normal_res_darkcausality <- darkcausality_parallel(INSST_Normal_model_data, cause, effect, num.cores = 48)
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_res_darkcausality <- darkcausality_parallel(Neumat_ASD_model_data, cause, effect, num.cores = 48)
+Neumat_Normal_res_darkcausality <- darkcausality_parallel(Neumat_Normal_model_data, cause, effect, num.cores = 48)
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_res_darkcausality <- darkcausality_parallel(ASTPP_ASD_model_data, cause, effect, num.cores = 48)
+ASTPP_Normal_res_darkcausality <- darkcausality_parallel(ASTPP_Normal_model_data, cause, effect, num.cores = 48)
+
+# ASD and Normal
+ASD_res_darkcausality[[2]] <- ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ASD_res_darkcausality[[3]] <- ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ASD_res_darkcausality[[4]] <- ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ASD_res_darkcausality_sig <- sigPC(ASD_res_darkcausality[[2]], ASD_res_darkcausality[[3]], ASD_res_darkcausality[[4]])
+Normal_res_darkcausality[[2]] <- Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Normal_res_darkcausality[[3]] <- Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Normal_res_darkcausality[[4]] <- Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Normal_res_darkcausality_sig <- sigPC(Normal_res_darkcausality[[2]], Normal_res_darkcausality[[3]], Normal_res_darkcausality[[4]])
+ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASD_res_darkcausality_sig[[1]] + ASD_res_darkcausality_sig[[2]] + ASD_res_darkcausality_sig[[3]]))
+Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Normal_res_darkcausality_sig[[1]] + Normal_res_darkcausality_sig[[2]] + Normal_res_darkcausality_sig[[3]]))
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_res_darkcausality[[2]] <- ACC_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ACC_ASD_res_darkcausality[[3]] <- ACC_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ACC_ASD_res_darkcausality[[4]] <- ACC_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ACC_ASD_res_darkcausality_sig <- sigPC(ACC_ASD_res_darkcausality[[2]], ACC_ASD_res_darkcausality[[3]], ACC_ASD_res_darkcausality[[4]])
+ACC_Normal_res_darkcausality[[2]] <- ACC_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ACC_Normal_res_darkcausality[[3]] <- ACC_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ACC_Normal_res_darkcausality[[4]] <- ACC_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ACC_Normal_res_darkcausality_sig <- sigPC(ACC_Normal_res_darkcausality[[2]], ACC_Normal_res_darkcausality[[3]], ACC_Normal_res_darkcausality[[4]])
+PFC_ASD_res_darkcausality[[2]] <- PFC_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+PFC_ASD_res_darkcausality[[3]] <- PFC_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+PFC_ASD_res_darkcausality[[4]] <- PFC_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+PFC_ASD_res_darkcausality_sig <- sigPC(PFC_ASD_res_darkcausality[[2]], PFC_ASD_res_darkcausality[[3]], PFC_ASD_res_darkcausality[[4]])
+PFC_Normal_res_darkcausality[[2]] <- PFC_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+PFC_Normal_res_darkcausality[[3]] <- PFC_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+PFC_Normal_res_darkcausality[[4]] <- PFC_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+PFC_Normal_res_darkcausality_sig <- sigPC(PFC_Normal_res_darkcausality[[2]], PFC_Normal_res_darkcausality[[3]], PFC_Normal_res_darkcausality[[4]])
+ACC_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ACC_ASD_res_darkcausality_sig[[1]] + ACC_ASD_res_darkcausality_sig[[2]] + ACC_ASD_res_darkcausality_sig[[3]]))
+ACC_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ACC_Normal_res_darkcausality_sig[[1]] + ACC_Normal_res_darkcausality_sig[[2]] + ACC_Normal_res_darkcausality_sig[[3]]))
+PFC_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(PFC_ASD_res_darkcausality_sig[[1]] + PFC_ASD_res_darkcausality_sig[[2]] + PFC_ASD_res_darkcausality_sig[[3]]))
+PFC_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(PFC_Normal_res_darkcausality_sig[[1]] + PFC_Normal_res_darkcausality_sig[[2]] + PFC_Normal_res_darkcausality_sig[[3]]))
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_res_darkcausality[[2]] <- Lower18_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Lower18_ASD_res_darkcausality[[3]] <- Lower18_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Lower18_ASD_res_darkcausality[[4]] <- Lower18_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Lower18_ASD_res_darkcausality_sig <- sigPC(Lower18_ASD_res_darkcausality[[2]], Lower18_ASD_res_darkcausality[[3]], Lower18_ASD_res_darkcausality[[4]])
+Lower18_Normal_res_darkcausality[[2]] <- Lower18_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Lower18_Normal_res_darkcausality[[3]] <- Lower18_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Lower18_Normal_res_darkcausality[[4]] <- Lower18_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Lower18_Normal_res_darkcausality_sig <- sigPC(Lower18_Normal_res_darkcausality[[2]], Lower18_Normal_res_darkcausality[[3]], Lower18_Normal_res_darkcausality[[4]])
+Larger18_ASD_res_darkcausality[[2]] <- Larger18_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Larger18_ASD_res_darkcausality[[3]] <- Larger18_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Larger18_ASD_res_darkcausality[[4]] <- Larger18_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Larger18_ASD_res_darkcausality_sig <- sigPC(Larger18_ASD_res_darkcausality[[2]], Larger18_ASD_res_darkcausality[[3]], Larger18_ASD_res_darkcausality[[4]])
+Larger18_Normal_res_darkcausality[[2]] <- Larger18_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Larger18_Normal_res_darkcausality[[3]] <- Larger18_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Larger18_Normal_res_darkcausality[[4]] <- Larger18_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Larger18_Normal_res_darkcausality_sig <- sigPC(Larger18_Normal_res_darkcausality[[2]], Larger18_Normal_res_darkcausality[[3]], Larger18_Normal_res_darkcausality[[4]])
+Lower18_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Lower18_ASD_res_darkcausality_sig[[1]] + Lower18_ASD_res_darkcausality_sig[[2]] + Lower18_ASD_res_darkcausality_sig[[3]]))
+Lower18_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Lower18_Normal_res_darkcausality_sig[[1]] + Lower18_Normal_res_darkcausality_sig[[2]] + Lower18_Normal_res_darkcausality_sig[[3]]))
+Larger18_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Larger18_ASD_res_darkcausality_sig[[1]] + Larger18_ASD_res_darkcausality_sig[[2]] + Larger18_ASD_res_darkcausality_sig[[3]]))
+Larger18_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Larger18_Normal_res_darkcausality_sig[[1]] + Larger18_Normal_res_darkcausality_sig[[2]] + Larger18_Normal_res_darkcausality_sig[[3]]))
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_res_darkcausality[[2]] <- Male_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Male_ASD_res_darkcausality[[3]] <- Male_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Male_ASD_res_darkcausality[[4]] <- Male_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Male_ASD_res_darkcausality_sig <- sigPC(Male_ASD_res_darkcausality[[2]], Male_ASD_res_darkcausality[[3]], Male_ASD_res_darkcausality[[4]])
+Male_Normal_res_darkcausality[[2]] <- Male_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Male_Normal_res_darkcausality[[3]] <- Male_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Male_Normal_res_darkcausality[[4]] <- Male_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Male_Normal_res_darkcausality_sig <- sigPC(Male_Normal_res_darkcausality[[2]], Male_Normal_res_darkcausality[[3]], Male_Normal_res_darkcausality[[4]])
+Female_ASD_res_darkcausality[[2]] <- Female_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Female_ASD_res_darkcausality[[3]] <- Female_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Female_ASD_res_darkcausality[[4]] <- Female_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Female_ASD_res_darkcausality_sig <- sigPC(Female_ASD_res_darkcausality[[2]], Female_ASD_res_darkcausality[[3]], Female_ASD_res_darkcausality[[4]])
+Female_Normal_res_darkcausality[[2]] <- Female_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Female_Normal_res_darkcausality[[3]] <- Female_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Female_Normal_res_darkcausality[[4]] <- Female_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Female_Normal_res_darkcausality_sig <- sigPC(Female_Normal_res_darkcausality[[2]], Female_Normal_res_darkcausality[[3]], Female_Normal_res_darkcausality[[4]])
+Male_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Male_ASD_res_darkcausality_sig[[1]] + Male_ASD_res_darkcausality_sig[[2]] + Male_ASD_res_darkcausality_sig[[3]]))
+Male_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Male_Normal_res_darkcausality_sig[[1]] + Male_Normal_res_darkcausality_sig[[2]] + Male_Normal_res_darkcausality_sig[[3]]))
+Female_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Female_ASD_res_darkcausality_sig[[1]] + Female_ASD_res_darkcausality_sig[[2]] + Female_ASD_res_darkcausality_sig[[3]]))
+Female_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Female_Normal_res_darkcausality_sig[[1]] + Female_Normal_res_darkcausality_sig[[2]] + Female_Normal_res_darkcausality_sig[[3]]))
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_res_darkcausality[[2]] <- NeuNRGNII_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+NeuNRGNII_ASD_res_darkcausality[[3]] <- NeuNRGNII_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+NeuNRGNII_ASD_res_darkcausality[[4]] <- NeuNRGNII_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+NeuNRGNII_ASD_res_darkcausality_sig <- sigPC(NeuNRGNII_ASD_res_darkcausality[[2]], NeuNRGNII_ASD_res_darkcausality[[3]], NeuNRGNII_ASD_res_darkcausality[[4]])
+NeuNRGNII_Normal_res_darkcausality[[2]] <- NeuNRGNII_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+NeuNRGNII_Normal_res_darkcausality[[3]] <- NeuNRGNII_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+NeuNRGNII_Normal_res_darkcausality[[4]] <- NeuNRGNII_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+NeuNRGNII_Normal_res_darkcausality_sig <- sigPC(NeuNRGNII_Normal_res_darkcausality[[2]], NeuNRGNII_Normal_res_darkcausality[[3]], NeuNRGNII_Normal_res_darkcausality[[4]])
+NeuNRGNII_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_ASD_res_darkcausality_sig[[1]] + NeuNRGNII_ASD_res_darkcausality_sig[[2]] + NeuNRGNII_ASD_res_darkcausality_sig[[3]]))
+NeuNRGNII_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_Normal_res_darkcausality_sig[[1]] + NeuNRGNII_Normal_res_darkcausality_sig[[2]] + NeuNRGNII_Normal_res_darkcausality_sig[[3]]))
+
+# L56_ASD, L56_Normal
+L56_ASD_res_darkcausality[[2]] <- L56_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L56_ASD_res_darkcausality[[3]] <- L56_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L56_ASD_res_darkcausality[[4]] <- L56_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L56_ASD_res_darkcausality_sig <- sigPC(L56_ASD_res_darkcausality[[2]], L56_ASD_res_darkcausality[[3]], L56_ASD_res_darkcausality[[4]])
+L56_Normal_res_darkcausality[[2]] <- L56_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L56_Normal_res_darkcausality[[3]] <- L56_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L56_Normal_res_darkcausality[[4]] <- L56_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L56_Normal_res_darkcausality_sig <- sigPC(L56_Normal_res_darkcausality[[2]], L56_Normal_res_darkcausality[[3]], L56_Normal_res_darkcausality[[4]])
+L56_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L56_ASD_res_darkcausality_sig[[1]] + L56_ASD_res_darkcausality_sig[[2]] + L56_ASD_res_darkcausality_sig[[3]]))
+L56_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L56_Normal_res_darkcausality_sig[[1]] + L56_Normal_res_darkcausality_sig[[2]] + L56_Normal_res_darkcausality_sig[[3]]))
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_res_darkcausality[[2]] <- Oligodendrocytes_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Oligodendrocytes_ASD_res_darkcausality[[3]] <- Oligodendrocytes_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Oligodendrocytes_ASD_res_darkcausality[[4]] <- Oligodendrocytes_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Oligodendrocytes_ASD_res_darkcausality_sig <- sigPC(Oligodendrocytes_ASD_res_darkcausality[[2]], Oligodendrocytes_ASD_res_darkcausality[[3]], Oligodendrocytes_ASD_res_darkcausality[[4]])
+Oligodendrocytes_Normal_res_darkcausality[[2]] <- Oligodendrocytes_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Oligodendrocytes_Normal_res_darkcausality[[3]] <- Oligodendrocytes_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Oligodendrocytes_Normal_res_darkcausality[[4]] <- Oligodendrocytes_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Oligodendrocytes_Normal_res_darkcausality_sig <- sigPC(Oligodendrocytes_Normal_res_darkcausality[[2]], Oligodendrocytes_Normal_res_darkcausality[[3]], Oligodendrocytes_Normal_res_darkcausality[[4]])
+Oligodendrocytes_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_ASD_res_darkcausality_sig[[1]] + Oligodendrocytes_ASD_res_darkcausality_sig[[2]] + Oligodendrocytes_ASD_res_darkcausality_sig[[3]]))
+Oligodendrocytes_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_Normal_res_darkcausality_sig[[1]] + Oligodendrocytes_Normal_res_darkcausality_sig[[2]] + Oligodendrocytes_Normal_res_darkcausality_sig[[3]]))
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_res_darkcausality[[2]] <- OPC_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+OPC_ASD_res_darkcausality[[3]] <- OPC_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+OPC_ASD_res_darkcausality[[4]] <- OPC_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+OPC_ASD_res_darkcausality_sig <- sigPC(OPC_ASD_res_darkcausality[[2]], OPC_ASD_res_darkcausality[[3]], OPC_ASD_res_darkcausality[[4]])
+OPC_Normal_res_darkcausality[[2]] <- OPC_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+OPC_Normal_res_darkcausality[[3]] <- OPC_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+OPC_Normal_res_darkcausality[[4]] <- OPC_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+OPC_Normal_res_darkcausality_sig <- sigPC(OPC_Normal_res_darkcausality[[2]], OPC_Normal_res_darkcausality[[3]], OPC_Normal_res_darkcausality[[4]])
+OPC_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(OPC_ASD_res_darkcausality_sig[[1]] + OPC_ASD_res_darkcausality_sig[[2]] + OPC_ASD_res_darkcausality_sig[[3]]))
+OPC_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(OPC_Normal_res_darkcausality_sig[[1]] + OPC_Normal_res_darkcausality_sig[[2]] + OPC_Normal_res_darkcausality_sig[[3]]))
+
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_res_darkcausality[[2]] <- ASTFB_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ASTFB_ASD_res_darkcausality[[3]] <- ASTFB_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ASTFB_ASD_res_darkcausality[[4]] <- ASTFB_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ASTFB_ASD_res_darkcausality_sig <- sigPC(ASTFB_ASD_res_darkcausality[[2]], ASTFB_ASD_res_darkcausality[[3]], ASTFB_ASD_res_darkcausality[[4]])
+ASTFB_Normal_res_darkcausality[[2]] <- ASTFB_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ASTFB_Normal_res_darkcausality[[3]] <- ASTFB_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ASTFB_Normal_res_darkcausality[[4]] <- ASTFB_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ASTFB_Normal_res_darkcausality_sig <- sigPC(ASTFB_Normal_res_darkcausality[[2]], ASTFB_Normal_res_darkcausality[[3]], ASTFB_Normal_res_darkcausality[[4]])
+ASTFB_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTFB_ASD_res_darkcausality_sig[[1]] + ASTFB_ASD_res_darkcausality_sig[[2]] + ASTFB_ASD_res_darkcausality_sig[[3]]))
+ASTFB_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTFB_Normal_res_darkcausality_sig[[1]] + ASTFB_Normal_res_darkcausality_sig[[2]] + ASTFB_Normal_res_darkcausality_sig[[3]]))
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_res_darkcausality[[2]] <- Endothelial_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Endothelial_ASD_res_darkcausality[[3]] <- Endothelial_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Endothelial_ASD_res_darkcausality[[4]] <- Endothelial_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Endothelial_ASD_res_darkcausality_sig <- sigPC(Endothelial_ASD_res_darkcausality[[2]], Endothelial_ASD_res_darkcausality[[3]], Endothelial_ASD_res_darkcausality[[4]])
+Endothelial_Normal_res_darkcausality[[2]] <- Endothelial_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Endothelial_Normal_res_darkcausality[[3]] <- Endothelial_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Endothelial_Normal_res_darkcausality[[4]] <- Endothelial_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Endothelial_Normal_res_darkcausality_sig <- sigPC(Endothelial_Normal_res_darkcausality[[2]], Endothelial_Normal_res_darkcausality[[3]], Endothelial_Normal_res_darkcausality[[4]])
+Endothelial_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Endothelial_ASD_res_darkcausality_sig[[1]] + Endothelial_ASD_res_darkcausality_sig[[2]] + Endothelial_ASD_res_darkcausality_sig[[3]]))
+Endothelial_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Endothelial_Normal_res_darkcausality_sig[[1]] + Endothelial_Normal_res_darkcausality_sig[[2]] + Endothelial_Normal_res_darkcausality_sig[[3]]))
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_res_darkcausality[[2]] <- Microglia_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Microglia_ASD_res_darkcausality[[3]] <- Microglia_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Microglia_ASD_res_darkcausality[[4]] <- Microglia_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Microglia_ASD_res_darkcausality_sig <- sigPC(Microglia_ASD_res_darkcausality[[2]], Microglia_ASD_res_darkcausality[[3]], Microglia_ASD_res_darkcausality[[4]])
+Microglia_Normal_res_darkcausality[[2]] <- Microglia_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Microglia_Normal_res_darkcausality[[3]] <- Microglia_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Microglia_Normal_res_darkcausality[[4]] <- Microglia_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Microglia_Normal_res_darkcausality_sig <- sigPC(Microglia_Normal_res_darkcausality[[2]], Microglia_Normal_res_darkcausality[[3]], Microglia_Normal_res_darkcausality[[4]])
+Microglia_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Microglia_ASD_res_darkcausality_sig[[1]] + Microglia_ASD_res_darkcausality_sig[[2]] + Microglia_ASD_res_darkcausality_sig[[3]]))
+Microglia_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Microglia_Normal_res_darkcausality_sig[[1]] + Microglia_Normal_res_darkcausality_sig[[2]] + Microglia_Normal_res_darkcausality_sig[[3]]))
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_res_darkcausality[[2]] <- NeuNRGNI_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+NeuNRGNI_ASD_res_darkcausality[[3]] <- NeuNRGNI_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+NeuNRGNI_ASD_res_darkcausality[[4]] <- NeuNRGNI_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+NeuNRGNI_ASD_res_darkcausality_sig <- sigPC(NeuNRGNI_ASD_res_darkcausality[[2]], NeuNRGNI_ASD_res_darkcausality[[3]], NeuNRGNI_ASD_res_darkcausality[[4]])
+NeuNRGNI_Normal_res_darkcausality[[2]] <- NeuNRGNI_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+NeuNRGNI_Normal_res_darkcausality[[3]] <- NeuNRGNI_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+NeuNRGNI_Normal_res_darkcausality[[4]] <- NeuNRGNI_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+NeuNRGNI_Normal_res_darkcausality_sig <- sigPC(NeuNRGNI_Normal_res_darkcausality[[2]], NeuNRGNI_Normal_res_darkcausality[[3]], NeuNRGNI_Normal_res_darkcausality[[4]])
+NeuNRGNI_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_ASD_res_darkcausality_sig[[1]] + NeuNRGNI_ASD_res_darkcausality_sig[[2]] + NeuNRGNI_ASD_res_darkcausality_sig[[3]]))
+NeuNRGNI_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_Normal_res_darkcausality_sig[[1]] + NeuNRGNI_Normal_res_darkcausality_sig[[2]] + NeuNRGNI_Normal_res_darkcausality_sig[[3]]))
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_res_darkcausality[[2]] <- INVIP_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INVIP_ASD_res_darkcausality[[3]] <- INVIP_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INVIP_ASD_res_darkcausality[[4]] <- INVIP_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INVIP_ASD_res_darkcausality_sig <- sigPC(INVIP_ASD_res_darkcausality[[2]], INVIP_ASD_res_darkcausality[[3]], INVIP_ASD_res_darkcausality[[4]])
+INVIP_Normal_res_darkcausality[[2]] <- INVIP_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INVIP_Normal_res_darkcausality[[3]] <- INVIP_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INVIP_Normal_res_darkcausality[[4]] <- INVIP_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INVIP_Normal_res_darkcausality_sig <- sigPC(INVIP_Normal_res_darkcausality[[2]], INVIP_Normal_res_darkcausality[[3]], INVIP_Normal_res_darkcausality[[4]])
+INVIP_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INVIP_ASD_res_darkcausality_sig[[1]] + INVIP_ASD_res_darkcausality_sig[[2]] + INVIP_ASD_res_darkcausality_sig[[3]]))
+INVIP_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INVIP_Normal_res_darkcausality_sig[[1]] + INVIP_Normal_res_darkcausality_sig[[2]] + INVIP_Normal_res_darkcausality_sig[[3]]))
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_res_darkcausality[[2]] <- L56CC_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L56CC_ASD_res_darkcausality[[3]] <- L56CC_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L56CC_ASD_res_darkcausality[[4]] <- L56CC_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L56CC_ASD_res_darkcausality_sig <- sigPC(L56CC_ASD_res_darkcausality[[2]], L56CC_ASD_res_darkcausality[[3]], L56CC_ASD_res_darkcausality[[4]])
+L56CC_Normal_res_darkcausality[[2]] <- L56CC_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L56CC_Normal_res_darkcausality[[3]] <- L56CC_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L56CC_Normal_res_darkcausality[[4]] <- L56CC_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L56CC_Normal_res_darkcausality_sig <- sigPC(L56CC_Normal_res_darkcausality[[2]], L56CC_Normal_res_darkcausality[[3]], L56CC_Normal_res_darkcausality[[4]])
+L56CC_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L56CC_ASD_res_darkcausality_sig[[1]] + L56CC_ASD_res_darkcausality_sig[[2]] + L56CC_ASD_res_darkcausality_sig[[3]]))
+L56CC_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L56CC_Normal_res_darkcausality_sig[[1]] + L56CC_Normal_res_darkcausality_sig[[2]] + L56CC_Normal_res_darkcausality_sig[[3]]))
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_res_darkcausality[[2]] <- INSV2C_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INSV2C_ASD_res_darkcausality[[3]] <- INSV2C_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INSV2C_ASD_res_darkcausality[[4]] <- INSV2C_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INSV2C_ASD_res_darkcausality_sig <- sigPC(INSV2C_ASD_res_darkcausality[[2]], INSV2C_ASD_res_darkcausality[[3]], INSV2C_ASD_res_darkcausality[[4]])
+INSV2C_Normal_res_darkcausality[[2]] <- INSV2C_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INSV2C_Normal_res_darkcausality[[3]] <- INSV2C_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INSV2C_Normal_res_darkcausality[[4]] <- INSV2C_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INSV2C_Normal_res_darkcausality_sig <- sigPC(INSV2C_Normal_res_darkcausality[[2]], INSV2C_Normal_res_darkcausality[[3]], INSV2C_Normal_res_darkcausality[[4]])
+INSV2C_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INSV2C_ASD_res_darkcausality_sig[[1]] + INSV2C_ASD_res_darkcausality_sig[[2]] + INSV2C_ASD_res_darkcausality_sig[[3]]))
+INSV2C_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INSV2C_Normal_res_darkcausality_sig[[1]] + INSV2C_Normal_res_darkcausality_sig[[2]] + INSV2C_Normal_res_darkcausality_sig[[3]]))
+
+# L23_ASD, L23_Normal
+L23_ASD_res_darkcausality[[2]] <- L23_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L23_ASD_res_darkcausality[[3]] <- L23_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L23_ASD_res_darkcausality[[4]] <- L23_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L23_ASD_res_darkcausality_sig <- sigPC(L23_ASD_res_darkcausality[[2]], L23_ASD_res_darkcausality[[3]], L23_ASD_res_darkcausality[[4]])
+L23_Normal_res_darkcausality[[2]] <- L23_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L23_Normal_res_darkcausality[[3]] <- L23_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L23_Normal_res_darkcausality[[4]] <- L23_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L23_Normal_res_darkcausality_sig <- sigPC(L23_Normal_res_darkcausality[[2]], L23_Normal_res_darkcausality[[3]], L23_Normal_res_darkcausality[[4]])
+L23_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L23_ASD_res_darkcausality_sig[[1]] + L23_ASD_res_darkcausality_sig[[2]] + L23_ASD_res_darkcausality_sig[[3]]))
+L23_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L23_Normal_res_darkcausality_sig[[1]] + L23_Normal_res_darkcausality_sig[[2]] + L23_Normal_res_darkcausality_sig[[3]]))
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_res_darkcausality[[2]] <- INPV_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INPV_ASD_res_darkcausality[[3]] <- INPV_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INPV_ASD_res_darkcausality[[4]] <- INPV_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INPV_ASD_res_darkcausality_sig <- sigPC(INPV_ASD_res_darkcausality[[2]], INPV_ASD_res_darkcausality[[3]], INPV_ASD_res_darkcausality[[4]])
+INPV_Normal_res_darkcausality[[2]] <- INPV_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INPV_Normal_res_darkcausality[[3]] <- INPV_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INPV_Normal_res_darkcausality[[4]] <- INPV_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INPV_Normal_res_darkcausality_sig <- sigPC(INPV_Normal_res_darkcausality[[2]], INPV_Normal_res_darkcausality[[3]], INPV_Normal_res_darkcausality[[4]])
+INPV_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INPV_ASD_res_darkcausality_sig[[1]] + INPV_ASD_res_darkcausality_sig[[2]] + INPV_ASD_res_darkcausality_sig[[3]]))
+INPV_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INPV_Normal_res_darkcausality_sig[[1]] + INPV_Normal_res_darkcausality_sig[[2]] + INPV_Normal_res_darkcausality_sig[[3]]))
+
+# L4_ASD, L4_Normal
+L4_ASD_res_darkcausality[[2]] <- L4_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L4_ASD_res_darkcausality[[3]] <- L4_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L4_ASD_res_darkcausality[[4]] <- L4_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L4_ASD_res_darkcausality_sig <- sigPC(L4_ASD_res_darkcausality[[2]], L4_ASD_res_darkcausality[[3]], L4_ASD_res_darkcausality[[4]])
+L4_Normal_res_darkcausality[[2]] <- L4_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+L4_Normal_res_darkcausality[[3]] <- L4_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+L4_Normal_res_darkcausality[[4]] <- L4_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+L4_Normal_res_darkcausality_sig <- sigPC(L4_Normal_res_darkcausality[[2]], L4_Normal_res_darkcausality[[3]], L4_Normal_res_darkcausality[[4]])
+L4_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L4_ASD_res_darkcausality_sig[[1]] + L4_ASD_res_darkcausality_sig[[2]] + L4_ASD_res_darkcausality_sig[[3]]))
+L4_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(L4_Normal_res_darkcausality_sig[[1]] + L4_Normal_res_darkcausality_sig[[2]] + L4_Normal_res_darkcausality_sig[[3]]))
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_res_darkcausality[[2]] <- INSST_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INSST_ASD_res_darkcausality[[3]] <- INSST_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INSST_ASD_res_darkcausality[[4]] <- INSST_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INSST_ASD_res_darkcausality_sig <- sigPC(INSST_ASD_res_darkcausality[[2]], INSST_ASD_res_darkcausality[[3]], INSST_ASD_res_darkcausality[[4]])
+INSST_Normal_res_darkcausality[[2]] <- INSST_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+INSST_Normal_res_darkcausality[[3]] <- INSST_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+INSST_Normal_res_darkcausality[[4]] <- INSST_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+INSST_Normal_res_darkcausality_sig <- sigPC(INSST_Normal_res_darkcausality[[2]], INSST_Normal_res_darkcausality[[3]], INSST_Normal_res_darkcausality[[4]])
+INSST_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INSST_ASD_res_darkcausality_sig[[1]] + INSST_ASD_res_darkcausality_sig[[2]] + INSST_ASD_res_darkcausality_sig[[3]]))
+INSST_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(INSST_Normal_res_darkcausality_sig[[1]] + INSST_Normal_res_darkcausality_sig[[2]] + INSST_Normal_res_darkcausality_sig[[3]]))
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_res_darkcausality[[2]] <- Neumat_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Neumat_ASD_res_darkcausality[[3]] <- Neumat_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Neumat_ASD_res_darkcausality[[4]] <- Neumat_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Neumat_ASD_res_darkcausality_sig <- sigPC(Neumat_ASD_res_darkcausality[[2]], Neumat_ASD_res_darkcausality[[3]], Neumat_ASD_res_darkcausality[[4]])
+Neumat_Normal_res_darkcausality[[2]] <- Neumat_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+Neumat_Normal_res_darkcausality[[3]] <- Neumat_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+Neumat_Normal_res_darkcausality[[4]] <- Neumat_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+Neumat_Normal_res_darkcausality_sig <- sigPC(Neumat_Normal_res_darkcausality[[2]], Neumat_Normal_res_darkcausality[[3]], Neumat_Normal_res_darkcausality[[4]])
+Neumat_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Neumat_ASD_res_darkcausality_sig[[1]] + Neumat_ASD_res_darkcausality_sig[[2]] + Neumat_ASD_res_darkcausality_sig[[3]]))
+Neumat_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(Neumat_Normal_res_darkcausality_sig[[1]] + Neumat_Normal_res_darkcausality_sig[[2]] + Neumat_Normal_res_darkcausality_sig[[3]]))
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_res_darkcausality[[2]] <- ASTPP_ASD_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ASTPP_ASD_res_darkcausality[[3]] <- ASTPP_ASD_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ASTPP_ASD_res_darkcausality[[4]] <- ASTPP_ASD_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ASTPP_ASD_res_darkcausality_sig <- sigPC(ASTPP_ASD_res_darkcausality[[2]], ASTPP_ASD_res_darkcausality[[3]], ASTPP_ASD_res_darkcausality[[4]])
+ASTPP_Normal_res_darkcausality[[2]] <- ASTPP_Normal_res_darkcausality[[2]] %>% replace(is.na(.), 0)
+ASTPP_Normal_res_darkcausality[[3]] <- ASTPP_Normal_res_darkcausality[[3]] %>% replace(is.na(.), 0)
+ASTPP_Normal_res_darkcausality[[4]] <- ASTPP_Normal_res_darkcausality[[4]] %>% replace(is.na(.), 0)
+ASTPP_Normal_res_darkcausality_sig <- sigPC(ASTPP_Normal_res_darkcausality[[2]], ASTPP_Normal_res_darkcausality[[3]], ASTPP_Normal_res_darkcausality[[4]])
+ASTPP_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_darkcausality_sig[[1]] + ASTPP_ASD_res_darkcausality_sig[[2]] + ASTPP_ASD_res_darkcausality_sig[[3]]))
+ASTPP_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_darkcausality_sig[[1]] + ASTPP_Normal_res_darkcausality_sig[[2]] + ASTPP_Normal_res_darkcausality_sig[[3]]))
+
+################################################################################  Granger application ############################################################################
+## ASD and Normal
+ASD_res_granger <- granger_parallel(ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Normal_res_granger <- granger_parallel(Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(ASD_res_granger))
+Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Normal_res_granger))
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_res_granger <- granger_parallel(ACC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ACC_Normal_res_granger <- granger_parallel(ACC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+PFC_ASD_res_granger <- granger_parallel(PFC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+PFC_Normal_res_granger <- granger_parallel(PFC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ACC_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(ACC_ASD_res_granger))
+ACC_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(ACC_Normal_res_granger))
+PFC_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(PFC_ASD_res_granger))
+PFC_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(PFC_Normal_res_granger))
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_res_granger <- granger_parallel(Lower18_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Lower18_Normal_res_granger <- granger_parallel(Lower18_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Larger18_ASD_res_granger <- granger_parallel(Larger18_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Larger18_Normal_res_granger <- granger_parallel(Larger18_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Lower18_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Lower18_ASD_res_granger))
+Lower18_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Lower18_Normal_res_granger))
+Larger18_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Larger18_ASD_res_granger))
+Larger18_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Larger18_Normal_res_granger))
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_res_granger <- granger_parallel(Male_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Male_Normal_res_granger <- granger_parallel(Male_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Female_ASD_res_granger <- granger_parallel(Female_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Female_Normal_res_granger <- granger_parallel(Female_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Male_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Male_ASD_res_granger))
+Male_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Male_Normal_res_granger))
+Female_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Female_ASD_res_granger))
+Female_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Female_Normal_res_granger))
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_res_granger <- granger_parallel(NeuNRGNII_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+NeuNRGNII_Normal_res_granger <- granger_parallel(NeuNRGNII_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+NeuNRGNII_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_ASD_res_granger))
+NeuNRGNII_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_Normal_res_granger))
+
+# L56_ASD, L56_Normal
+L56_ASD_res_granger <- granger_parallel(L56_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L56_Normal_res_granger <- granger_parallel(L56_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L56_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(L56_ASD_res_granger))
+L56_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(L56_Normal_res_granger))
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_res_granger <- granger_parallel(Oligodendrocytes_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Oligodendrocytes_Normal_res_granger <- granger_parallel(Oligodendrocytes_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Oligodendrocytes_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_ASD_res_granger))
+Oligodendrocytes_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_Normal_res_granger))
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_res_granger <- granger_parallel(OPC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+OPC_Normal_res_granger <- granger_parallel(OPC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+OPC_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(OPC_ASD_res_granger))
+OPC_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(OPC_Normal_res_granger))
+
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_res_granger <- granger_parallel(ASTFB_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ASTFB_Normal_res_granger <- granger_parallel(ASTFB_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ASTFB_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(ASTFB_ASD_res_granger))
+ASTFB_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(ASTFB_Normal_res_granger))
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_res_granger <- granger_parallel(Endothelial_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Endothelial_Normal_res_granger <- granger_parallel(Endothelial_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Endothelial_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Endothelial_ASD_res_granger))
+Endothelial_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Endothelial_Normal_res_granger))
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_res_granger <- granger_parallel(Microglia_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Microglia_Normal_res_granger <- granger_parallel(Microglia_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Microglia_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Microglia_ASD_res_granger))
+Microglia_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Microglia_Normal_res_granger))
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_res_granger <- granger_parallel(NeuNRGNI_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+NeuNRGNI_Normal_res_granger <- granger_parallel(NeuNRGNI_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+NeuNRGNI_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_ASD_res_granger))
+NeuNRGNI_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_Normal_res_granger))
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_res_granger <- granger_parallel(INVIP_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INVIP_Normal_res_granger <- granger_parallel(INVIP_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INVIP_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(INVIP_ASD_res_granger))
+INVIP_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(INVIP_Normal_res_granger))
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_res_granger <- granger_parallel(L56CC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L56CC_Normal_res_granger <- granger_parallel(L56CC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L56CC_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(L56CC_ASD_res_granger))
+L56CC_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(L56CC_Normal_res_granger))
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_res_granger <- granger_parallel(INSV2C_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INSV2C_Normal_res_granger <- granger_parallel(INSV2C_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INSV2C_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(INSV2C_ASD_res_granger))
+INSV2C_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(INSV2C_Normal_res_granger))
+
+# L23_ASD, L23_Normal
+L23_ASD_res_granger <- granger_parallel(L23_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L23_Normal_res_granger <- granger_parallel(L23_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L23_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(L23_ASD_res_granger))
+L23_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(L23_Normal_res_granger))
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_res_granger <- granger_parallel(INPV_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INPV_Normal_res_granger <- granger_parallel(INPV_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INPV_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(INPV_ASD_res_granger))
+INPV_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(INPV_Normal_res_granger))
+
+# L4_ASD, L4_Normal
+L4_ASD_res_granger <- granger_parallel(L4_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L4_Normal_res_granger <- granger_parallel(L4_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+L4_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(L4_ASD_res_granger))
+L4_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(L4_Normal_res_granger))
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_res_granger <- granger_parallel(INSST_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INSST_Normal_res_granger <- granger_parallel(INSST_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+INSST_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(INSST_ASD_res_granger))
+INSST_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(INSST_Normal_res_granger))
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_res_granger <- granger_parallel(Neumat_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Neumat_Normal_res_granger <- granger_parallel(Neumat_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+Neumat_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(Neumat_ASD_res_granger))
+Neumat_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(Neumat_Normal_res_granger))
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_res_granger <- granger_parallel(ASTPP_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ASTPP_Normal_res_granger <- granger_parallel(ASTPP_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
+ASTPP_ASD_res_granger_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_granger))
+ASTPP_Normal_res_granger_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_granger))
+
+###########################################################################  seqICP application ################################################################################################
+# ASD and Normal
+ASD_res_seqICP <- seqICP_parallel(ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Normal_res_seqICP <- seqICP_parallel(Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASD_res_seqICP))
+Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Normal_res_seqICP))
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_res_seqICP <- seqICP_parallel(ACC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ACC_Normal_res_seqICP <- seqICP_parallel(ACC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+PFC_ASD_res_seqICP <- seqICP_parallel(PFC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+PFC_Normal_res_seqICP <- seqICP_parallel(PFC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ACC_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ACC_ASD_res_seqICP))
+ACC_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ACC_Normal_res_seqICP))
+PFC_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(PFC_ASD_res_seqICP))
+PFC_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(PFC_Normal_res_seqICP))
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_res_seqICP <- seqICP_parallel(Lower18_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Lower18_Normal_res_seqICP <- seqICP_parallel(Lower18_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Larger18_ASD_res_seqICP <- seqICP_parallel(Larger18_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Larger18_Normal_res_seqICP <- seqICP_parallel(Larger18_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Lower18_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Lower18_ASD_res_seqICP))
+Lower18_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Lower18_Normal_res_seqICP))
+Larger18_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Larger18_ASD_res_seqICP))
+Larger18_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Larger18_Normal_res_seqICP))
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_res_seqICP <- seqICP_parallel(Male_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Male_Normal_res_seqICP <- seqICP_parallel(Male_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Female_ASD_res_seqICP <- seqICP_parallel(Female_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Female_Normal_res_seqICP <- seqICP_parallel(Female_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Male_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Male_ASD_res_seqICP))
+Male_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Male_Normal_res_seqICP))
+Female_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Female_ASD_res_seqICP))
+Female_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Female_Normal_res_seqICP))
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_res_seqICP <- seqICP_parallel(NeuNRGNII_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+NeuNRGNII_Normal_res_seqICP <- seqICP_parallel(NeuNRGNII_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+NeuNRGNII_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_ASD_res_seqICP))
+NeuNRGNII_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(NeuNRGNII_Normal_res_seqICP))
+
+# L56_ASD, L56_Normal
+L56_ASD_res_seqICP <- seqICP_parallel(L56_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L56_Normal_res_seqICP <- seqICP_parallel(L56_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L56_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L56_ASD_res_seqICP))
+L56_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L56_Normal_res_seqICP))
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_res_seqICP <- seqICP_parallel(Oligodendrocytes_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Oligodendrocytes_Normal_res_seqICP <- seqICP_parallel(Oligodendrocytes_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Oligodendrocytes_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_ASD_res_seqICP))
+Oligodendrocytes_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Oligodendrocytes_Normal_res_seqICP))
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_res_seqICP <- seqICP_parallel(OPC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+OPC_Normal_res_seqICP <- seqICP_parallel(OPC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+OPC_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(OPC_ASD_res_seqICP))
+OPC_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(OPC_Normal_res_seqICP))
+
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_res_seqICP <- seqICP_parallel(ASTFB_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ASTFB_Normal_res_seqICP <- seqICP_parallel(ASTFB_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ASTFB_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTFB_ASD_res_seqICP))
+ASTFB_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTFB_Normal_res_seqICP))
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_res_seqICP <- seqICP_parallel(Endothelial_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Endothelial_Normal_res_seqICP <- seqICP_parallel(Endothelial_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Endothelial_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Endothelial_ASD_res_seqICP))
+Endothelial_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Endothelial_Normal_res_seqICP))
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_res_seqICP <- seqICP_parallel(Microglia_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Microglia_Normal_res_seqICP <- seqICP_parallel(Microglia_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Microglia_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Microglia_ASD_res_seqICP))
+Microglia_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Microglia_Normal_res_seqICP))
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_res_seqICP <- seqICP_parallel(NeuNRGNI_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+NeuNRGNI_Normal_res_seqICP <- seqICP_parallel(NeuNRGNI_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+NeuNRGNI_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_ASD_res_seqICP))
+NeuNRGNI_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(NeuNRGNI_Normal_res_seqICP))
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_res_seqICP <- seqICP_parallel(INVIP_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INVIP_Normal_res_seqICP <- seqICP_parallel(INVIP_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INVIP_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INVIP_ASD_res_seqICP))
+INVIP_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INVIP_Normal_res_seqICP))
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_res_seqICP <- seqICP_parallel(L56CC_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L56CC_Normal_res_seqICP <- seqICP_parallel(L56CC_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L56CC_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L56CC_ASD_res_seqICP))
+L56CC_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L56CC_Normal_res_seqICP))
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_res_seqICP <- seqICP_parallel(INSV2C_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INSV2C_Normal_res_seqICP <- seqICP_parallel(INSV2C_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INSV2C_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INSV2C_ASD_res_seqICP))
+INSV2C_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INSV2C_Normal_res_seqICP))
+
+# L23_ASD, L23_Normal
+L23_ASD_res_seqICP <- seqICP_parallel(L23_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L23_Normal_res_seqICP <- seqICP_parallel(L23_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L23_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L23_ASD_res_seqICP))
+L23_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L23_Normal_res_seqICP))
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_res_seqICP <- seqICP_parallel(INPV_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INPV_Normal_res_seqICP <- seqICP_parallel(INPV_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INPV_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INPV_ASD_res_seqICP))
+INPV_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INPV_Normal_res_seqICP))
+
+# L4_ASD, L4_Normal
+L4_ASD_res_seqICP <- seqICP_parallel(L4_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L4_Normal_res_seqICP <- seqICP_parallel(L4_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+L4_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L4_ASD_res_seqICP))
+L4_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(L4_Normal_res_seqICP))
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_res_seqICP <- seqICP_parallel(INSST_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INSST_Normal_res_seqICP <- seqICP_parallel(INSST_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+INSST_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INSST_ASD_res_seqICP))
+INSST_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(INSST_Normal_res_seqICP))
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_res_seqICP <- seqICP_parallel(Neumat_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Neumat_Normal_res_seqICP <- seqICP_parallel(Neumat_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+Neumat_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Neumat_ASD_res_seqICP))
+Neumat_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(Neumat_Normal_res_seqICP))
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_res_seqICP <- seqICP_parallel(ASTPP_ASD_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ASTPP_Normal_res_seqICP <- seqICP_parallel(ASTPP_Normal_model_data, cause, effect, pvalue_cutoff = 0.01, method = "seqICPnl", num.cores = 48)
+ASTPP_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_seqICP))
+ASTPP_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_seqICP))
+
+############################################################################ Incorporating priori information of lncRNA targets #########################################################################
+lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
+lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
+
+# Clean
+ASD_res_darkcausality_priori_graph <- ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Normal_res_darkcausality_priori_graph <- Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+ACC_ASD_res_darkcausality_priori_graph <- ACC_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+ACC_Normal_res_darkcausality_priori_graph <- ACC_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+PFC_ASD_res_darkcausality_priori_graph <- PFC_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+PFC_Normal_res_darkcausality_priori_graph <- PFC_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Lower18_ASD_res_darkcausality_priori_graph <- Lower18_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Lower18_Normal_res_darkcausality_priori_graph <- Lower18_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+Larger18_ASD_res_darkcausality_priori_graph <- Larger18_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Larger18_Normal_res_darkcausality_priori_graph <- Larger18_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Male_ASD_res_darkcausality_priori_graph <- Male_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Male_Normal_res_darkcausality_priori_graph <- Male_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+Female_ASD_res_darkcausality_priori_graph <- Female_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Female_Normal_res_darkcausality_priori_graph <- Female_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+NeuNRGNII_ASD_res_darkcausality_priori_graph <- NeuNRGNII_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+NeuNRGNII_Normal_res_darkcausality_priori_graph <- NeuNRGNII_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+L56_ASD_res_darkcausality_priori_graph <- L56_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+L56_Normal_res_darkcausality_priori_graph <- L56_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Oligodendrocytes_ASD_res_darkcausality_priori_graph <- Oligodendrocytes_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Oligodendrocytes_Normal_res_darkcausality_priori_graph <- Oligodendrocytes_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+OPC_ASD_res_darkcausality_priori_graph <- OPC_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+OPC_Normal_res_darkcausality_priori_graph <- OPC_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+ASTFB_ASD_res_darkcausality_priori_graph <- ASTFB_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+ASTFB_Normal_res_darkcausality_priori_graph <- ASTFB_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Endothelial_ASD_res_darkcausality_priori_graph <- Endothelial_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Endothelial_Normal_res_darkcausality_priori_graph <- Endothelial_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Microglia_ASD_res_darkcausality_priori_graph <- Microglia_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Microglia_Normal_res_darkcausality_priori_graph <- Microglia_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+NeuNRGNI_ASD_res_darkcausality_priori_graph <- NeuNRGNI_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+NeuNRGNI_Normal_res_darkcausality_priori_graph <- NeuNRGNI_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+INVIP_ASD_res_darkcausality_priori_graph <- INVIP_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+INVIP_Normal_res_darkcausality_priori_graph <- INVIP_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+L56CC_ASD_res_darkcausality_priori_graph <- L56CC_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+L56CC_Normal_res_darkcausality_priori_graph <- L56CC_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+INSV2C_ASD_res_darkcausality_priori_graph <- INSV2C_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+INSV2C_Normal_res_darkcausality_priori_graph <- INSV2C_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+L23_ASD_res_darkcausality_priori_graph <- L23_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+L23_Normal_res_darkcausality_priori_graph <- L23_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+INPV_ASD_res_darkcausality_priori_graph <- INPV_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+INPV_Normal_res_darkcausality_priori_graph <- INPV_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+L4_ASD_res_darkcausality_priori_graph <- L4_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+L4_Normal_res_darkcausality_priori_graph <- L4_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+INSST_ASD_res_darkcausality_priori_graph <- INSST_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+INSST_Normal_res_darkcausality_priori_graph <- INSST_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+Neumat_ASD_res_darkcausality_priori_graph <- Neumat_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+Neumat_Normal_res_darkcausality_priori_graph <- Neumat_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+ASTPP_ASD_res_darkcausality_priori_graph <- ASTPP_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
+ASTPP_Normal_res_darkcausality_priori_graph <- ASTPP_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
+
+# Granger
+ASD_res_granger_priori_graph <- ASD_res_granger_graph %s% lncRTarget_priori_graph
+Normal_res_granger_priori_graph <- Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+ACC_ASD_res_granger_priori_graph <- ACC_ASD_res_granger_graph %s% lncRTarget_priori_graph
+ACC_Normal_res_granger_priori_graph <- ACC_Normal_res_granger_graph %s% lncRTarget_priori_graph
+PFC_ASD_res_granger_priori_graph <- PFC_ASD_res_granger_graph %s% lncRTarget_priori_graph
+PFC_Normal_res_granger_priori_graph <- PFC_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Lower18_ASD_res_granger_priori_graph <- Lower18_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Lower18_Normal_res_granger_priori_graph <- Lower18_Normal_res_granger_graph %s% lncRTarget_priori_graph
+Larger18_ASD_res_granger_priori_graph <- Larger18_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Larger18_Normal_res_granger_priori_graph <- Larger18_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Male_ASD_res_granger_priori_graph <- Male_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Male_Normal_res_granger_priori_graph <- Male_Normal_res_granger_graph %s% lncRTarget_priori_graph
+Female_ASD_res_granger_priori_graph <- Female_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Female_Normal_res_granger_priori_graph <- Female_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+NeuNRGNII_ASD_res_granger_priori_graph <- NeuNRGNII_ASD_res_granger_graph %s% lncRTarget_priori_graph
+NeuNRGNII_Normal_res_granger_priori_graph <- NeuNRGNII_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+L56_ASD_res_granger_priori_graph <- L56_ASD_res_granger_graph %s% lncRTarget_priori_graph
+L56_Normal_res_granger_priori_graph <- L56_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Oligodendrocytes_ASD_res_granger_priori_graph <- Oligodendrocytes_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Oligodendrocytes_Normal_res_granger_priori_graph <- Oligodendrocytes_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+OPC_ASD_res_granger_priori_graph <- OPC_ASD_res_granger_graph %s% lncRTarget_priori_graph
+OPC_Normal_res_granger_priori_graph <- OPC_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+ASTFB_ASD_res_granger_priori_graph <- ASTFB_ASD_res_granger_graph %s% lncRTarget_priori_graph
+ASTFB_Normal_res_granger_priori_graph <- ASTFB_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Endothelial_ASD_res_granger_priori_graph <- Endothelial_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Endothelial_Normal_res_granger_priori_graph <- Endothelial_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Microglia_ASD_res_granger_priori_graph <- Microglia_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Microglia_Normal_res_granger_priori_graph <- Microglia_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+NeuNRGNI_ASD_res_granger_priori_graph <- NeuNRGNI_ASD_res_granger_graph %s% lncRTarget_priori_graph
+NeuNRGNI_Normal_res_granger_priori_graph <- NeuNRGNI_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+INVIP_ASD_res_granger_priori_graph <- INVIP_ASD_res_granger_graph %s% lncRTarget_priori_graph
+INVIP_Normal_res_granger_priori_graph <- INVIP_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+L56CC_ASD_res_granger_priori_graph <- L56CC_ASD_res_granger_graph %s% lncRTarget_priori_graph
+L56CC_Normal_res_granger_priori_graph <- L56CC_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+INSV2C_ASD_res_granger_priori_graph <- INSV2C_ASD_res_granger_graph %s% lncRTarget_priori_graph
+INSV2C_Normal_res_granger_priori_graph <- INSV2C_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+L23_ASD_res_granger_priori_graph <- L23_ASD_res_granger_graph %s% lncRTarget_priori_graph
+L23_Normal_res_granger_priori_graph <- L23_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+INPV_ASD_res_granger_priori_graph <- INPV_ASD_res_granger_graph %s% lncRTarget_priori_graph
+INPV_Normal_res_granger_priori_graph <- INPV_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+L4_ASD_res_granger_priori_graph <- L4_ASD_res_granger_graph %s% lncRTarget_priori_graph
+L4_Normal_res_granger_priori_graph <- L4_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+INSST_ASD_res_granger_priori_graph <- INSST_ASD_res_granger_graph %s% lncRTarget_priori_graph
+INSST_Normal_res_granger_priori_graph <- INSST_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+Neumat_ASD_res_granger_priori_graph <- Neumat_ASD_res_granger_graph %s% lncRTarget_priori_graph
+Neumat_Normal_res_granger_priori_graph <- Neumat_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+ASTPP_ASD_res_granger_priori_graph <- ASTPP_ASD_res_granger_graph %s% lncRTarget_priori_graph
+ASTPP_Normal_res_granger_priori_graph <- ASTPP_Normal_res_granger_graph %s% lncRTarget_priori_graph
+
+# seqICP
+ASD_res_seqICP_priori_graph <- ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Normal_res_seqICP_priori_graph <- Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+ACC_ASD_res_seqICP_priori_graph <- ACC_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+ACC_Normal_res_seqICP_priori_graph <- ACC_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+PFC_ASD_res_seqICP_priori_graph <- PFC_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+PFC_Normal_res_seqICP_priori_graph <- PFC_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Lower18_ASD_res_seqICP_priori_graph <- Lower18_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Lower18_Normal_res_seqICP_priori_graph <- Lower18_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+Larger18_ASD_res_seqICP_priori_graph <- Larger18_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Larger18_Normal_res_seqICP_priori_graph <- Larger18_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Male_ASD_res_seqICP_priori_graph <- Male_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Male_Normal_res_seqICP_priori_graph <- Male_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+Female_ASD_res_seqICP_priori_graph <- Female_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Female_Normal_res_seqICP_priori_graph <- Female_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+NeuNRGNII_ASD_res_seqICP_priori_graph <- NeuNRGNII_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+NeuNRGNII_Normal_res_seqICP_priori_graph <- NeuNRGNII_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+L56_ASD_res_seqICP_priori_graph <- L56_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+L56_Normal_res_seqICP_priori_graph <- L56_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Oligodendrocytes_ASD_res_seqICP_priori_graph <- Oligodendrocytes_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Oligodendrocytes_Normal_res_seqICP_priori_graph <- Oligodendrocytes_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+OPC_ASD_res_seqICP_priori_graph <- OPC_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+OPC_Normal_res_seqICP_priori_graph <- OPC_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+ASTFB_ASD_res_seqICP_priori_graph <- ASTFB_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+ASTFB_Normal_res_seqICP_priori_graph <- ASTFB_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Endothelial_ASD_res_seqICP_priori_graph <- Endothelial_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Endothelial_Normal_res_seqICP_priori_graph <- Endothelial_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Microglia_ASD_res_seqICP_priori_graph <- Microglia_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Microglia_Normal_res_seqICP_priori_graph <- Microglia_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+NeuNRGNI_ASD_res_seqICP_priori_graph <- NeuNRGNI_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+NeuNRGNI_Normal_res_seqICP_priori_graph <- NeuNRGNI_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+INVIP_ASD_res_seqICP_priori_graph <- INVIP_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+INVIP_Normal_res_seqICP_priori_graph <- INVIP_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+L56CC_ASD_res_seqICP_priori_graph <- L56CC_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+L56CC_Normal_res_seqICP_priori_graph <- L56CC_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+INSV2C_ASD_res_seqICP_priori_graph <- INSV2C_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+INSV2C_Normal_res_seqICP_priori_graph <- INSV2C_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+L23_ASD_res_seqICP_priori_graph <- L23_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+L23_Normal_res_seqICP_priori_graph <- L23_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+INPV_ASD_res_seqICP_priori_graph <- INPV_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+INPV_Normal_res_seqICP_priori_graph <- INPV_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+L4_ASD_res_seqICP_priori_graph <- L4_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+L4_Normal_res_seqICP_priori_graph <- L4_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+INSST_ASD_res_seqICP_priori_graph <- INSST_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+INSST_Normal_res_seqICP_priori_graph <- INSST_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+Neumat_ASD_res_seqICP_priori_graph <- Neumat_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+Neumat_Normal_res_seqICP_priori_graph <- Neumat_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+
+ASTPP_ASD_res_seqICP_priori_graph <- ASTPP_ASD_res_seqICP_graph %s% lncRTarget_priori_graph
+ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
+```
+
+## Step 4: Validation
+```{r, eval=TRUE, include=TRUE}
+############################# 4.1 Validation with priori information #############################
+lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
+lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
+
+# Clean
+ASD_res_darkcausality_priori_validated <- as_data_frame(ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_darkcausality_priori_validated <- as_data_frame(Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_darkcausality_priori_validated <- as_data_frame(ACC_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_darkcausality_priori_validated <- as_data_frame(ACC_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_darkcausality_priori_validated <- as_data_frame(PFC_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_darkcausality_priori_validated <- as_data_frame(PFC_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_darkcausality_priori_validated <- as_data_frame(Lower18_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_darkcausality_priori_validated <- as_data_frame(Lower18_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_darkcausality_priori_validated <- as_data_frame(Larger18_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_darkcausality_priori_validated <- as_data_frame(Larger18_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_darkcausality_priori_validated <- as_data_frame(Male_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_darkcausality_priori_validated <- as_data_frame(Male_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_darkcausality_priori_validated <- as_data_frame(Female_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_darkcausality_priori_validated <- as_data_frame(Female_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_darkcausality_priori_validated <- as_data_frame(NeuNRGNII_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_darkcausality_priori_validated <- as_data_frame(NeuNRGNII_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_darkcausality_priori_validated <- as_data_frame(L56_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_darkcausality_priori_validated <- as_data_frame(L56_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_darkcausality_priori_validated <- as_data_frame(Oligodendrocytes_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_darkcausality_priori_validated <- as_data_frame(Oligodendrocytes_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_darkcausality_priori_validated <- as_data_frame(OPC_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_darkcausality_priori_validated <- as_data_frame(OPC_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_darkcausality_priori_validated <- as_data_frame(ASTFB_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_darkcausality_priori_validated <- as_data_frame(ASTFB_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_darkcausality_priori_validated <- as_data_frame(Endothelial_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_darkcausality_priori_validated <- as_data_frame(Endothelial_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_darkcausality_priori_validated <- as_data_frame(Microglia_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_darkcausality_priori_validated <- as_data_frame(Microglia_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_darkcausality_priori_validated <- as_data_frame(NeuNRGNI_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_darkcausality_priori_validated <- as_data_frame(NeuNRGNI_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_darkcausality_priori_validated <- as_data_frame(INVIP_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_darkcausality_priori_validated <- as_data_frame(INVIP_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_darkcausality_priori_validated <- as_data_frame(L56CC_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_darkcausality_priori_validated <- as_data_frame(L56CC_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_darkcausality_priori_validated <- as_data_frame(INSV2C_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_darkcausality_priori_validated <- as_data_frame(INSV2C_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_darkcausality_priori_validated <- as_data_frame(L23_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_darkcausality_priori_validated <- as_data_frame(L23_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_darkcausality_priori_validated <- as_data_frame(INPV_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_darkcausality_priori_validated <- as_data_frame(INPV_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_darkcausality_priori_validated <- as_data_frame(L4_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_darkcausality_priori_validated <- as_data_frame(L4_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_darkcausality_priori_validated <- as_data_frame(INSST_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_darkcausality_priori_validated <- as_data_frame(INSST_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_darkcausality_priori_validated <- as_data_frame(Neumat_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_darkcausality_priori_validated <- as_data_frame(Neumat_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_darkcausality_priori_validated <- as_data_frame(ASTPP_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_darkcausality_priori_validated <- as_data_frame(ASTPP_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
+
+# Granger
+ASD_res_granger_priori_validated <- as_data_frame(ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_granger_priori_validated <- as_data_frame(Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_granger_priori_validated <- as_data_frame(ACC_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_granger_priori_validated <- as_data_frame(ACC_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_granger_priori_validated <- as_data_frame(PFC_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_granger_priori_validated <- as_data_frame(PFC_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_granger_priori_validated <- as_data_frame(Lower18_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_granger_priori_validated <- as_data_frame(Lower18_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_granger_priori_validated <- as_data_frame(Larger18_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_granger_priori_validated <- as_data_frame(Larger18_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_granger_priori_validated <- as_data_frame(Male_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_granger_priori_validated <- as_data_frame(Male_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_granger_priori_validated <- as_data_frame(Female_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_granger_priori_validated <- as_data_frame(Female_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_granger_priori_validated <- as_data_frame(NeuNRGNII_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_granger_priori_validated <- as_data_frame(NeuNRGNII_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_granger_priori_validated <- as_data_frame(L56_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_granger_priori_validated <- as_data_frame(L56_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_granger_priori_validated <- as_data_frame(Oligodendrocytes_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_granger_priori_validated <- as_data_frame(Oligodendrocytes_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_granger_priori_validated <- as_data_frame(OPC_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_granger_priori_validated <- as_data_frame(OPC_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_granger_priori_validated <- as_data_frame(ASTFB_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_granger_priori_validated <- as_data_frame(ASTFB_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_granger_priori_validated <- as_data_frame(Endothelial_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_granger_priori_validated <- as_data_frame(Endothelial_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_granger_priori_validated <- as_data_frame(Microglia_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_granger_priori_validated <- as_data_frame(Microglia_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_granger_priori_validated <- as_data_frame(NeuNRGNI_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_granger_priori_validated <- as_data_frame(NeuNRGNI_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_granger_priori_validated <- as_data_frame(INVIP_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_granger_priori_validated <- as_data_frame(INVIP_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_granger_priori_validated <- as_data_frame(L56CC_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_granger_priori_validated <- as_data_frame(L56CC_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_granger_priori_validated <- as_data_frame(INSV2C_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_granger_priori_validated <- as_data_frame(INSV2C_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_granger_priori_validated <- as_data_frame(L23_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_granger_priori_validated <- as_data_frame(L23_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_granger_priori_validated <- as_data_frame(INPV_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_granger_priori_validated <- as_data_frame(INPV_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_granger_priori_validated <- as_data_frame(L4_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_granger_priori_validated <- as_data_frame(L4_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_granger_priori_validated <- as_data_frame(INSST_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_granger_priori_validated <- as_data_frame(INSST_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_granger_priori_validated <- as_data_frame(Neumat_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_granger_priori_validated <- as_data_frame(Neumat_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_granger_priori_validated <- as_data_frame(ASTPP_ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_granger_priori_validated <- as_data_frame(ASTPP_Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
+
+# seqICP
+ASD_res_seqICP_priori_validated <- as_data_frame(ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_seqICP_priori_validated <- as_data_frame(Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_seqICP_priori_validated <- as_data_frame(ACC_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_seqICP_priori_validated <- as_data_frame(ACC_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_seqICP_priori_validated <- as_data_frame(PFC_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_seqICP_priori_validated <- as_data_frame(PFC_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_seqICP_priori_validated <- as_data_frame(Lower18_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_seqICP_priori_validated <- as_data_frame(Lower18_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_seqICP_priori_validated <- as_data_frame(Larger18_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_seqICP_priori_validated <- as_data_frame(Larger18_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_seqICP_priori_validated <- as_data_frame(Male_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_seqICP_priori_validated <- as_data_frame(Male_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_seqICP_priori_validated <- as_data_frame(Female_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_seqICP_priori_validated <- as_data_frame(Female_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_seqICP_priori_validated <- as_data_frame(NeuNRGNII_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_seqICP_priori_validated <- as_data_frame(NeuNRGNII_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_seqICP_priori_validated <- as_data_frame(L56_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_seqICP_priori_validated <- as_data_frame(L56_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_seqICP_priori_validated <- as_data_frame(Oligodendrocytes_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_seqICP_priori_validated <- as_data_frame(Oligodendrocytes_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_seqICP_priori_validated <- as_data_frame(OPC_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_seqICP_priori_validated <- as_data_frame(OPC_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_seqICP_priori_validated <- as_data_frame(ASTFB_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_seqICP_priori_validated <- as_data_frame(ASTFB_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_seqICP_priori_validated <- as_data_frame(Endothelial_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_seqICP_priori_validated <- as_data_frame(Endothelial_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_seqICP_priori_validated <- as_data_frame(Microglia_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_seqICP_priori_validated <- as_data_frame(Microglia_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_seqICP_priori_validated <- as_data_frame(NeuNRGNI_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_seqICP_priori_validated <- as_data_frame(NeuNRGNI_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_seqICP_priori_validated <- as_data_frame(INVIP_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_seqICP_priori_validated <- as_data_frame(INVIP_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_seqICP_priori_validated <- as_data_frame(L56CC_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_seqICP_priori_validated <- as_data_frame(L56CC_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_seqICP_priori_validated <- as_data_frame(INSV2C_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_seqICP_priori_validated <- as_data_frame(INSV2C_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_seqICP_priori_validated <- as_data_frame(L23_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_seqICP_priori_validated <- as_data_frame(L23_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_seqICP_priori_validated <- as_data_frame(INPV_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_seqICP_priori_validated <- as_data_frame(INPV_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_seqICP_priori_validated <- as_data_frame(L4_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_seqICP_priori_validated <- as_data_frame(L4_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_seqICP_priori_validated <- as_data_frame(INSST_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_seqICP_priori_validated <- as_data_frame(INSST_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_seqICP_priori_validated <- as_data_frame(Neumat_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_seqICP_priori_validated <- as_data_frame(Neumat_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_seqICP_priori_validated <- as_data_frame(ASTPP_ASD_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_seqICP_priori_validated <- as_data_frame(ASTPP_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
+
+############################# 4.2 Validation without priori information #############################
+# Clean
+ASD_res_darkcausality_validated <- as_data_frame(ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_darkcausality_validated <- as_data_frame(Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_darkcausality_validated <- as_data_frame(ACC_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_darkcausality_validated <- as_data_frame(ACC_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_darkcausality_validated <- as_data_frame(PFC_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_darkcausality_validated <- as_data_frame(PFC_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_darkcausality_validated <- as_data_frame(Lower18_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_darkcausality_validated <- as_data_frame(Lower18_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_darkcausality_validated <- as_data_frame(Larger18_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_darkcausality_validated <- as_data_frame(Larger18_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_darkcausality_validated <- as_data_frame(Male_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_darkcausality_validated <- as_data_frame(Male_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_darkcausality_validated <- as_data_frame(Female_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_darkcausality_validated <- as_data_frame(Female_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_darkcausality_validated <- as_data_frame(NeuNRGNII_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_darkcausality_validated <- as_data_frame(NeuNRGNII_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_darkcausality_validated <- as_data_frame(L56_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_darkcausality_validated <- as_data_frame(L56_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_darkcausality_validated <- as_data_frame(Oligodendrocytes_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_darkcausality_validated <- as_data_frame(Oligodendrocytes_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_darkcausality_validated <- as_data_frame(OPC_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_darkcausality_validated <- as_data_frame(OPC_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_darkcausality_validated <- as_data_frame(ASTFB_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_darkcausality_validated <- as_data_frame(ASTFB_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_darkcausality_validated <- as_data_frame(Endothelial_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_darkcausality_validated <- as_data_frame(Endothelial_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_darkcausality_validated <- as_data_frame(Microglia_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_darkcausality_validated <- as_data_frame(Microglia_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_darkcausality_validated <- as_data_frame(NeuNRGNI_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_darkcausality_validated <- as_data_frame(NeuNRGNI_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_darkcausality_validated <- as_data_frame(INVIP_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_darkcausality_validated <- as_data_frame(INVIP_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_darkcausality_validated <- as_data_frame(L56CC_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_darkcausality_validated <- as_data_frame(L56CC_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_darkcausality_validated <- as_data_frame(INSV2C_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_darkcausality_validated <- as_data_frame(INSV2C_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_darkcausality_validated <- as_data_frame(L23_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_darkcausality_validated <- as_data_frame(L23_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_darkcausality_validated <- as_data_frame(INPV_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_darkcausality_validated <- as_data_frame(INPV_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_darkcausality_validated <- as_data_frame(L4_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_darkcausality_validated <- as_data_frame(L4_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_darkcausality_validated <- as_data_frame(INSST_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_darkcausality_validated <- as_data_frame(INSST_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_darkcausality_validated <- as_data_frame(Neumat_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_darkcausality_validated <- as_data_frame(Neumat_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_darkcausality_validated <- as_data_frame(ASTPP_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_darkcausality_validated <- as_data_frame(ASTPP_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+# Granger
+ASD_res_granger_validated <- as_data_frame(ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_granger_validated <- as_data_frame(Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_granger_validated <- as_data_frame(ACC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_granger_validated <- as_data_frame(ACC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_granger_validated <- as_data_frame(PFC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_granger_validated <- as_data_frame(PFC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_granger_validated <- as_data_frame(Lower18_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_granger_validated <- as_data_frame(Lower18_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_granger_validated <- as_data_frame(Larger18_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_granger_validated <- as_data_frame(Larger18_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_granger_validated <- as_data_frame(Male_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_granger_validated <- as_data_frame(Male_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_granger_validated <- as_data_frame(Female_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_granger_validated <- as_data_frame(Female_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_granger_validated <- as_data_frame(NeuNRGNII_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_granger_validated <- as_data_frame(NeuNRGNII_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_granger_validated <- as_data_frame(L56_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_granger_validated <- as_data_frame(L56_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_granger_validated <- as_data_frame(Oligodendrocytes_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_granger_validated <- as_data_frame(Oligodendrocytes_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_granger_validated <- as_data_frame(OPC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_granger_validated <- as_data_frame(OPC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_granger_validated <- as_data_frame(ASTFB_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_granger_validated <- as_data_frame(ASTFB_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_granger_validated <- as_data_frame(Endothelial_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_granger_validated <- as_data_frame(Endothelial_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_granger_validated <- as_data_frame(Microglia_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_granger_validated <- as_data_frame(Microglia_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_granger_validated <- as_data_frame(NeuNRGNI_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_granger_validated <- as_data_frame(NeuNRGNI_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_granger_validated <- as_data_frame(INVIP_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_granger_validated <- as_data_frame(INVIP_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_granger_validated <- as_data_frame(L56CC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_granger_validated <- as_data_frame(L56CC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_granger_validated <- as_data_frame(INSV2C_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_granger_validated <- as_data_frame(INSV2C_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_granger_validated <- as_data_frame(L23_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_granger_validated <- as_data_frame(L23_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_granger_validated <- as_data_frame(INPV_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_granger_validated <- as_data_frame(INPV_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_granger_validated <- as_data_frame(L4_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_granger_validated <- as_data_frame(L4_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_granger_validated <- as_data_frame(INSST_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_granger_validated <- as_data_frame(INSST_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_granger_validated <- as_data_frame(Neumat_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_granger_validated <- as_data_frame(Neumat_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_granger_validated <- as_data_frame(ASTPP_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_granger_validated <- as_data_frame(ASTPP_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+
+# seqICP
+ASD_res_seqICP_validated <- as_data_frame(ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_seqICP_validated <- as_data_frame(Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_seqICP_validated <- as_data_frame(ACC_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_seqICP_validated <- as_data_frame(ACC_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_seqICP_validated <- as_data_frame(PFC_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_seqICP_validated <- as_data_frame(PFC_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_seqICP_validated <- as_data_frame(Lower18_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_seqICP_validated <- as_data_frame(Lower18_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_seqICP_validated <- as_data_frame(Larger18_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_seqICP_validated <- as_data_frame(Larger18_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_seqICP_validated <- as_data_frame(Male_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_seqICP_validated <- as_data_frame(Male_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_seqICP_validated <- as_data_frame(Female_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_seqICP_validated <- as_data_frame(Female_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_seqICP_validated <- as_data_frame(NeuNRGNII_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_seqICP_validated <- as_data_frame(NeuNRGNII_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_seqICP_validated <- as_data_frame(L56_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_seqICP_validated <- as_data_frame(L56_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_seqICP_validated <- as_data_frame(Oligodendrocytes_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_seqICP_validated <- as_data_frame(Oligodendrocytes_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_seqICP_validated <- as_data_frame(OPC_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_seqICP_validated <- as_data_frame(OPC_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_seqICP_validated <- as_data_frame(ASTFB_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_seqICP_validated <- as_data_frame(ASTFB_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_seqICP_validated <- as_data_frame(Endothelial_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_seqICP_validated <- as_data_frame(Endothelial_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_seqICP_validated <- as_data_frame(Microglia_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_seqICP_validated <- as_data_frame(Microglia_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_seqICP_validated <- as_data_frame(NeuNRGNI_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_seqICP_validated <- as_data_frame(NeuNRGNI_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_seqICP_validated <- as_data_frame(INVIP_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_seqICP_validated <- as_data_frame(INVIP_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_seqICP_validated <- as_data_frame(L56CC_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_seqICP_validated <- as_data_frame(L56CC_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_seqICP_validated <- as_data_frame(INSV2C_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_seqICP_validated <- as_data_frame(INSV2C_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_seqICP_validated <- as_data_frame(L23_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_seqICP_validated <- as_data_frame(L23_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_seqICP_validated <- as_data_frame(INPV_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_seqICP_validated <- as_data_frame(INPV_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_seqICP_validated <- as_data_frame(L4_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_seqICP_validated <- as_data_frame(L4_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_seqICP_validated <- as_data_frame(INSST_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_seqICP_validated <- as_data_frame(INSST_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_seqICP_validated <- as_data_frame(Neumat_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_seqICP_validated <- as_data_frame(Neumat_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_seqICP_validated <- as_data_frame(ASTPP_ASD_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_seqICP_validated <- as_data_frame(ASTPP_Normal_res_seqICP_graph %s% lncRTarget_groundtruth_graph)
+```
+
+## Step 5: Heterogeneity analysis
+```{r, eval=TRUE, include=TRUE}
+lncR_diagnostic_net <- list(ASD_res_darkcausality_priori_graph, Normal_res_darkcausality_priori_graph)
+lncR_region_net <- list(ACC_ASD_res_darkcausality_priori_graph,
+                        PFC_ASD_res_darkcausality_priori_graph,
+                        ACC_Normal_res_darkcausality_priori_graph,                        
+                        PFC_Normal_res_darkcausality_priori_graph)
+lncR_age_net <- list(Lower18_ASD_res_darkcausality_priori_graph,
+                     Larger18_ASD_res_darkcausality_priori_graph,
+                     Lower18_Normal_res_darkcausality_priori_graph,
+		     Larger18_Normal_res_darkcausality_priori_graph)
+lncR_sex_net <- list(Male_ASD_res_darkcausality_priori_graph,
+                     Female_ASD_res_darkcausality_priori_graph,
+		     Male_Normal_res_darkcausality_priori_graph,
+		     Female_Normal_res_darkcausality_priori_graph)
+lncR_celltype_net <- list(NeuNRGNII_ASD_res_darkcausality_priori_graph,
+                     L56_ASD_res_darkcausality_priori_graph,
+                     Oligodendrocytes_ASD_res_darkcausality_priori_graph,
+		     OPC_ASD_res_darkcausality_priori_graph,
+                     ASTFB_ASD_res_darkcausality_priori_graph,
+                     Endothelial_ASD_res_darkcausality_priori_graph,
+                     Microglia_ASD_res_darkcausality_priori_graph,
+		     NeuNRGNI_ASD_res_darkcausality_priori_graph,
+		     INVIP_ASD_res_darkcausality_priori_graph,
+		     L56CC_ASD_res_darkcausality_priori_graph,
+		     INSV2C_ASD_res_darkcausality_priori_graph,
+		     L23_ASD_res_darkcausality_priori_graph,
+		     INPV_ASD_res_darkcausality_priori_graph,
+		     L4_ASD_res_darkcausality_priori_graph,
+		     INSST_ASD_res_darkcausality_priori_graph,
+		     Neumat_ASD_res_darkcausality_priori_graph,
+		     ASTPP_ASD_res_darkcausality_priori_graph,
+                     NeuNRGNII_Normal_res_darkcausality_priori_graph,
+                     L56_Normal_res_darkcausality_priori_graph,
+                     Oligodendrocytes_Normal_res_darkcausality_priori_graph,
+		     OPC_Normal_res_darkcausality_priori_graph,
+                     ASTFB_Normal_res_darkcausality_priori_graph,
+                     Endothelial_Normal_res_darkcausality_priori_graph,
+                     Microglia_Normal_res_darkcausality_priori_graph,
+		     NeuNRGNI_Normal_res_darkcausality_priori_graph,
+		     INVIP_Normal_res_darkcausality_priori_graph,
+		     L56CC_Normal_res_darkcausality_priori_graph,
+		     INSV2C_Normal_res_darkcausality_priori_graph,
+		     L23_Normal_res_darkcausality_priori_graph,
+		     INPV_Normal_res_darkcausality_priori_graph,
+		     L4_Normal_res_darkcausality_priori_graph,
+		     INSST_Normal_res_darkcausality_priori_graph,
+		     Neumat_Normal_res_darkcausality_priori_graph,
+		     ASTPP_Normal_res_darkcausality_priori_graph
+                     )
+diagnostic_Het <- Het.network(lncR_diagnostic_net, lncR_diagnostic_net)
+region_Het <- Het.network(lncR_region_net, lncR_region_net)
+age_Het <- Het.network(lncR_age_net, lncR_age_net)
+sex_Het <- Het.network(lncR_sex_net, lncR_sex_net)
+celltype_Het <- Het.network(lncR_celltype_net, lncR_celltype_net)
+```
+
+# Conclusions
+In this tutorial, we apply Clean, Granger and seqICP to show how to infer dynamic lncRNA regulation in ASD. Moreover, we also perform heterogeneity analysis of the identified lncRNA causal regulatory networks across diverse brain biological contexts (i.e. diagnosis, region, age, sex and cell type). Taken together, Clean provides a useful method to help delineate dynamic lncRNA regulation in ASD, and offers technical support for precision therapeutics tailored to dynamic causal regulation states.
+
+# Session information
+```{r}
+sessionInfo()
+```
