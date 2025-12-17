@@ -13,9 +13,9 @@ A schematic illustration of **Clean** is shown in the folowing.
 According to brain biological contexts (i.e. diagnosis, region, age, sex and cell type), the snRNA-seq data of autism and normal brain cells is splitted into 48 data slices. For each data slice, metacells are built for removing technical noise and preserving the biological information of it. For the identified metacells, **Clean** uses trajectory inference to order them along a linear trajectory. Given the processed 48 data slices, **Clean** applies hidden causal inference and incorporates priori information of lncRNA targets to infer dynamic lncRNA causal regulation. Based on the identified dynamic lncRNA causal regulation, **Clean** further conducts heterogeneity analysis to capture conditional shifts in lncRNA regulation.
 
 ## :book: Description of each file in R folders
-- **Clean.R**: Utility functions for delineating dynamic lncRNA regulation in ASD.
+- **Clean.R**: Utility functions for delineating dynamic lncRNA causal regulation in ASD.
 
-- **Case_study.R**: Case study for identifying dynamic lncRNA regulation in ASD.
+- **Case_study.R**: Case study for identifying dynamic lncRNA causal regulation in ASD.
 
 ## :gear: The usage of Clean
 Paste all files into a single folder (set the folder as the directory of R environment). The users can simply run the scripts as follows.
@@ -25,7 +25,7 @@ source("R/Case_study.R")
 ```
 
 ## :zap: Quick example to use Clean
-For inferring dynamic lncRNA regulation, users should prepare matched lncRNA and mRNA expression data and putative lncRNA targets in diffferent contexts. Paste the datasets and our source file (**Clean.R**) into a single folder (set the folder as the directory of R environment), users can use the following scripts to infer lncRNA regulation in two contexts (ASD and Normal). For convenience, our ASD single-nucleus RNA sequencing data prepared for users are from [here](https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link).
+For inferring dynamic lncRNA causal regulation, users should prepare matched lncRNA and mRNA expression data and putative lncRNA targets in diffferent contexts. Paste the datasets and our source file (**Clean.R**) into a single folder (set the folder as the directory of R environment), users can use the following scripts to infer lncRNA causal regulation in two contexts (ASD and Normal). For convenience, our ASD single-nucleus RNA sequencing data prepared for users are from [here](https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link).
 
 ```{r echo=FALSE, results='hide', message=FALSE}
 ## Load ASD dataset and source script

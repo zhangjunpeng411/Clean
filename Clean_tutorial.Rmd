@@ -1,5 +1,5 @@
 ---
-title: "Tutorial for inferring dynamic lncRNA regulation in autism spectrum disorder" 
+title: "Tutorial for inferring dynamic lncRNA causal regulation in autism spectrum disorder" 
 author: "\\
     
     Junpeng Zhang (zjp@dali.edu.cn)\\
@@ -12,7 +12,7 @@ output:
     BiocStyle::pdf_document:
       toc: yes
 vignette: >
-    %\VignetteIndexEntry{Tutorial for inferring dynamic lncRNA regulation in autism spectrum disorder} 
+    %\VignetteIndexEntry{Tutorial for inferring dynamic lncRNA causal regulation in autism spectrum disorder} 
     %\VignetteEngine{knitr::rmarkdown} 
     %\usepackage[utf8]{inputenc} 
     %\VignetteEncoding{UTF-8}
@@ -53,7 +53,7 @@ library(pROC)
 ```
 
 # Data preparation
-For inferring dynamic causal regulation by lncRNAs, users should prepare matched lncRNA and mRNA expression data and putative lncRNA-target interactions (optional). In this tutorial, we use the largest single-nucleus RNA sequencing (snRNA-seq) data of cortical tissue including the anterior cingulated (ACC) and prefrontal cortex (PFC) regions from patients with autism (the expression data of 813 lncRNAs and 5,133 mRNAs exhibiting high expression levels across 104,559 cells, including 52,003 autism cells and 52,556 normal cells) as an example. Putative lncRNA-target interactions are predicted by using LncTar (http://www.cuilab.cn/lnctar). In total, a list of 105,649 lncRNA-mRNA interactions has been predicted.
+For inferring dynamic causal regulation by lncRNAs, users should prepare matched lncRNA and mRNA expression data and putative lncRNA-target interactions. In this tutorial, we use the largest single-nucleus RNA sequencing (snRNA-seq) data of cortical tissue including the anterior cingulated (ACC) and prefrontal cortex (PFC) regions from patients with autism (the expression data of 813 lncRNAs and 5,133 mRNAs exhibiting high expression levels across 104,559 cells, including 52,003 autism cells and 52,556 normal cells) as an example. Putative lncRNA-target interactions are predicted by using LncTar (http://www.cuilab.cn/lnctar). In total, a list of 105,649 lncRNA-mRNA interactions has been predicted by LncTar.
 
 ```{r, eval=TRUE, include=TRUE}
 # Load ASD dataset
@@ -72,10 +72,10 @@ lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", heade
 lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
 ```
 
-For convenience, the full list of our prepared single-nucleus RNA sequencing data in the Clean paper can be obtained from [here](https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link).
+For convenience, the full list of our prepared single-nucleus RNA sequencing data, priori information of lncRNA targets, groundtruth of lncRNA targets, and putative ligand-receptor interactions in the Clean paper can be obtained from [here](https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link).
 
 # Delineating dynamic lncRNA regulation in ASD 
-The utility functions for delineating dynamic lncRNA regulation are collected in the source file: **Clean.R**. In this tutorial, we select three sequential causality methods (Clean, Granger, seqICP) to infer dynamic lncRNA regulation from ASD single-nucleus RNA sequencing data. The priori information of lncRNA targets has two cases: None (no priori information), LncTar (priori information of LncTar).
+The utility functions for delineating dynamic lncRNA causal regulation are collected in the source file: **Clean.R**. In this tutorial, we select three sequential causality methods (Clean, Granger, seqICP) to infer dynamic lncRNA causal regulation from ASD single-nucleus RNA sequencing data. The priori information of lncRNA targets has two cases: None (no priori information), LncTar (priori information of LncTar).
 
 ## Step 1: Identifying metacells
 ```{r, eval=TRUE, include=TRUE}
@@ -1610,7 +1610,7 @@ ASTPP_ASD_res_seqICP_priori_graph <- ASTPP_ASD_res_seqICP_graph %s% lncRTarget_p
 ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
 ```
 
-## Step 4: Validation
+## Step 4: Validation with and without priori information
 ```{r, eval=TRUE, include=TRUE}
 ############################# 4.1 Validation with priori information #############################
 lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
@@ -2096,7 +2096,7 @@ celltype_Het <- Het.network(lncR_celltype_net, lncR_celltype_net)
 ```
 
 # Conclusions
-In this tutorial, we apply Clean, Granger and seqICP to show how to infer dynamic lncRNA regulation in ASD. Moreover, we also perform heterogeneity analysis of the identified lncRNA causal regulatory networks across diverse brain biological contexts (i.e. diagnosis, region, age, sex and cell type). Taken together, Clean provides a useful method to help delineate dynamic lncRNA regulation in ASD, and offers technical support for precision therapeutics tailored to dynamic causal regulation states.
+In this tutorial, we apply Clean, Granger and seqICP to show how to infer dynamic lncRNA causal regulation in ASD. Moreover, we also perform heterogeneity analysis of the identified lncRNA causal regulatory networks across diverse brain biological contexts (i.e. diagnosis, region, age, sex and cell type). Taken together, Clean provides a useful method to help delineate dynamic lncRNA causal regulation in ASD, and offers technical support for precision therapeutics tailored to dynamic causal regulation states.
 
 # Session information
 ```{r}
