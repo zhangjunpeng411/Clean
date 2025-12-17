@@ -1,0 +1,2 @@
+For convenience, our ASD single-nucleus RNA sequencing data prepared for users ("ASD_lncR_mR.RData") can be downloaded 
+from https://drive.google.com/file/d/1sdLk7AcZszXYdV47_EMEVVhf0p1E_vDo/view?usp=drive_link.
