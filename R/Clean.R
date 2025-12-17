@@ -3,7 +3,7 @@
 ###################################################################################### Utility functions ##############################################################
 #######################################################################################################################################################################
 #######################################################################################################################################################################
-## Dark Causality
+## Clean: Dark Causality
 # data The input dataset, rows are samples and columns are genes.
 # cause	The number of integer positions of the cause variables in the dataset.
 # effect The number of integer positions of the target variables in the dataset.
@@ -73,7 +73,7 @@ sigPC <- function(P_matrix, N_matrix, D_matrix, strength_cutoff = 0.60){
   return(list(res_P, res_N, res_D))
 }
 
-## Granger Causality
+## Granger: Granger Causality
 # data The input dataset, rows are samples and columns are genes.
 # cause	The number of integer positions of the cause variables in the dataset.
 # effect The number of integer positions of the target variables in the dataset.
@@ -115,7 +115,7 @@ granger_parallel <- function(data, cause, effect, pvalue_cutoff, num.cores){
     return(res)
 }
 
-## Sequential Invariant Causal Prediction
+## seqICP: Sequential Invariant Causal Prediction
 # data The input dataset, rows are samples and columns are genes.
 # cause	The number of integer positions of the cause variables in the dataset.
 # effect The number of integer positions of the target variables in the dataset.

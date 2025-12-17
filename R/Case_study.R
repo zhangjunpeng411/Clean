@@ -21,8 +21,11 @@ library(e1071)
 library(caret)    
 library(pROC)
 
+## Load Utility functions
+source("R/Clean.R")
+
 ## Load input data
-load("ASD_lncR_mR.RData")
+load("data/ASD_lncR_mR.RData")
 
 ## Index of cause and effect for causal inference
 cause <- 5134:5946
@@ -5309,6 +5312,7 @@ ASTPP_ASD_res_seqICP_priori_graph <- ASTPP_ASD_res_seqICP_graph %s% lncRTarget_p
 ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTarget_priori_graph
 
 ########################################################################### Downstream analysis ################################################################################################
+####################################### 1. Validation #############################################
 ############################# 1.1. Validation with priori information #############################
 lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
 lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
