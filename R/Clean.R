@@ -140,12 +140,12 @@ Overlap.hub <- function(hub, overlap.num = 1, type = c("equal", "least")){
 
 # Function to identify gained and lost edges for each lncRNA
 # g_asd An igraph object of ASD network.
-# g_normal An igraph object of normal network.
-calculate_lncrna_rewiring <- function(g_asd, g_normal) {
+# g_control An igraph object of control network.
+calculate_lncrna_rewiring <- function(g_asd, g_control) {
   
   # Get edge lists
   edges_asd <- igraph::as_data_frame(g_asd)
-  edges_normal <- igraph::as_data_frame(g_normal)
+  edges_control <- igraph::as_data_frame(g_control)
   
   # Add edge identifiers
   if (nrow(edges_asd) > 0) {
@@ -154,29 +154,29 @@ calculate_lncrna_rewiring <- function(g_asd, g_normal) {
     edges_asd$edge_id <- character(0)
   }
   
-  if (nrow(edges_normal) > 0) {
-    edges_normal$edge_id <- paste(edges_normal$from, edges_normal$to, sep = "_")
+  if (nrow(edges_control) > 0) {
+    edges_control$edge_id <- paste(edges_control$from, edges_control$to, sep = "_")
   } else {
-    edges_normal$edge_id <- character(0)
+    edges_control$edge_id <- character(0)
   }
   
-  # Identify gained edges (in ASD but not in normal)
+  # Identify gained edges (in ASD but not in Control)
   if (nrow(edges_asd) > 0) {
-    gained_edges <- edges_asd[!edges_asd$edge_id %in% edges_normal$edge_id, ]
+    gained_edges <- edges_asd[!edges_asd$edge_id %in% edges_control$edge_id, ]
   } else {
     gained_edges <- data.frame()
   }
   
-  # Identify lost edges (in normal but not in ASD)
-  if (nrow(edges_normal) > 0) {
-    lost_edges <- edges_normal[!edges_normal$edge_id %in% edges_asd$edge_id, ]
+  # Identify lost edges (in Control but not in ASD)
+  if (nrow(edges_control) > 0) {
+    lost_edges <- edges_control[!edges_control$edge_id %in% edges_asd$edge_id, ]
   } else {
     lost_edges <- data.frame()
   }
   
   # Get all lncRNAs (source nodes from both networks)
   # Assuming lncRNAs are the source nodes in the edges
-  all_lncrnas <- unique(c(edges_asd$from, edges_normal$from))
+  all_lncrnas <- unique(c(edges_asd$from, edges_control$from))
   
   # Count gained and lost edges per lncRNA (source node only)
   if (nrow(gained_edges) > 0) {
