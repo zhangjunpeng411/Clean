@@ -1,5 +1,5 @@
 ######################################################################################################################################################################################
-########################################################################### Clean application in ASD dataset #########################################################################
+########################################################################### DCRNet application in ASD dataset #########################################################################
 ######################################################################################################################################################################################
 
 ## Load required packages
@@ -22,7 +22,7 @@ library(caret)
 library(pROC)
 
 ## Load Utility functions
-source("R/Clean.R")
+source("R/DCRNet.R")
 
 ## Load input data
 load("data/ASD_lncR_mR.RData")
@@ -4446,7 +4446,7 @@ ASTPP_Normal_model <- infer_trajectory(ASTPP_Normal_space)
 ASTPP_ASD_model_data <- t(as.matrix(ASTPP_ASD_SC30_GE))[match(names(sort(ASTPP_ASD_model$time)), colnames(ASTPP_ASD_SC30_GE)), ]
 ASTPP_Normal_model_data <- t(as.matrix(ASTPP_Normal_SC30_GE))[match(names(sort(ASTPP_Normal_model$time)), colnames(ASTPP_Normal_SC30_GE)), ]
 
-################################################################################  Clean application ############################################################################
+################################################################################  DCRNet application ############################################################################
 # ASD and Normal
 ASD_res_darkcausality <- darkcausality_parallel(ASD_model_data, cause, effect, num.cores = 48)
 Normal_res_darkcausality <- darkcausality_parallel(Normal_model_data, cause, effect, num.cores = 48)
@@ -5101,7 +5101,7 @@ ASTPP_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_re
 lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
 lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
 
-# Clean
+# DCRNet
 ASD_res_darkcausality_priori_graph <- ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
 Normal_res_darkcausality_priori_graph <- Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
 
@@ -5317,7 +5317,7 @@ ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTa
 lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
 lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
 
-# Clean
+# DCRNet
 ASD_res_darkcausality_priori_validated <- as_data_frame(ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
 Normal_res_darkcausality_priori_validated <- as_data_frame(Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
 
@@ -5528,7 +5528,7 @@ ASTPP_ASD_res_seqICP_priori_validated <- as_data_frame(ASTPP_ASD_res_seqICP_prio
 ASTPP_Normal_res_seqICP_priori_validated <- as_data_frame(ASTPP_Normal_res_seqICP_priori_graph %s% lncRTarget_groundtruth_graph)
 
 ############################# 1.2. Validation without priori information #############################
-# Clean
+# DCRNet
 ASD_res_darkcausality_validated <- as_data_frame(ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
 Normal_res_darkcausality_validated <- as_data_frame(Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
 
