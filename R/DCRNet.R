@@ -637,52 +637,119 @@ analyze_cv_results <- function(cv_results, problem_type = "binary") {
                                           cv_results$all_probabilities)
   }
   
-  # Calculate fold metrics
+  # Calculate fold-level metrics for CI
+  # Helper to compute F1 for a single fold
+  calc_fold_f1 <- function(true, pred, type) {
+    if (type == "binary") {
+      cm <- table(pred, true)
+      if (nrow(cm) == 2 && ncol(cm) == 2) {
+        TP <- cm[2,2]; FP <- cm[2,1]; FN <- cm[1,2]
+        precision <- ifelse(TP + FP > 0, TP / (TP + FP), 0)
+        recall    <- ifelse(TP + FN > 0, TP / (TP + FN), 0)
+        f1 <- ifelse(precision + recall > 0, 2 * precision * recall / (precision + recall), 0)
+        return(f1)
+      } else {
+        return(NA)
+      }
+    } else {  # multiclass macro F1
+      classes <- levels(as.factor(true))
+      f1s <- sapply(classes, function(cls) {
+        TP <- sum(pred == cls & true == cls)
+        FP <- sum(pred == cls & true != cls)
+        FN <- sum(pred != cls & true == cls)
+        precision <- ifelse(TP + FP > 0, TP / (TP + FP), 0)
+        recall    <- ifelse(TP + FN > 0, TP / (TP + FN), 0)
+        f1 <- ifelse(precision + recall > 0, 2 * precision * recall / (precision + recall), 0)
+        return(f1)
+      })
+      return(mean(f1s, na.rm = TRUE))
+    }
+  }
+  
+  # Helper to compute AUC for a single fold (binary or macro for multiclass)
+  calc_fold_auc <- function(true, prob, type) {
+    if (type == "binary") {
+      positive_class <- levels(as.factor(true))[2]
+      if (positive_class %in% colnames(prob)) {
+        prob_pos <- as.numeric(prob[, positive_class])
+        resp <- as.numeric(true == positive_class)
+        if (length(unique(resp)) > 1) {
+          roc_obj <- roc(resp, prob_pos, quiet = TRUE)
+          return(as.numeric(auc(roc_obj)))
+        }
+      }
+      return(NA)
+    } else {  # multiclass macro AUC (one-vs-rest)
+      classes <- levels(as.factor(true))
+      aucs <- sapply(classes, function(cls) {
+        binary_labels <- as.numeric(true == cls)
+        probs <- as.numeric(prob[, cls])
+        if (length(unique(binary_labels)) > 1) {
+          roc_obj <- roc(binary_labels, probs, quiet = TRUE)
+          return(as.numeric(auc(roc_obj)))
+        } else {
+          return(NA)
+        }
+      })
+      return(mean(aucs, na.rm = TRUE))
+    }
+  }
+  
+  # Collect fold metrics
   fold_accuracies <- sapply(cv_results$fold_results, function(fold) {
     if (is.list(fold) && !is.null(fold$success) && fold$success) {
-      correct <- sum(fold$predictions == fold$true_labels)
-      total <- length(fold$true_labels)
-      correct / total
+      return(sum(fold$predictions == fold$true_labels) / length(fold$true_labels))
     } else {
-      NA
+      return(NA)
     }
   })
-  
-  # Remove NA values from failed folds
   fold_accuracies <- fold_accuracies[!is.na(fold_accuracies)]
   
-  # Calculate fold AUCs only for binary classification
-  fold_aucs <- NULL
-  if (problem_type == "binary") {
-    fold_aucs <- sapply(cv_results$fold_results, function(fold) {
-      if (is.list(fold) && !is.null(fold$success) && fold$success) {
-        tryCatch({
-          positive_class <- levels(cv_results$all_true_labels)[2]
-          if (positive_class %in% colnames(fold$probabilities)) {
-            prob_positive <- as.numeric(fold$probabilities[, positive_class])
-            numeric_response <- as.numeric(fold$true_labels == positive_class)
-            if (length(unique(numeric_response)) > 1) {
-              roc_obj <- roc(numeric_response, prob_positive, quiet = TRUE)
-              return(auc(roc_obj))
-            }
-          }
-          return(NA)
-        }, error = function(e) NA)
-      } else {
-        NA
-      }
-    })
-    fold_aucs <- fold_aucs[!is.na(fold_aucs)]
+  fold_f1s <- sapply(cv_results$fold_results, function(fold) {
+    if (is.list(fold) && !is.null(fold$success) && fold$success) {
+      return(calc_fold_f1(fold$true_labels, fold$predictions, problem_type))
+    } else {
+      return(NA)
+    }
+  })
+  fold_f1s <- fold_f1s[!is.na(fold_f1s)]
+  
+  fold_aucs <- sapply(cv_results$fold_results, function(fold) {
+    if (is.list(fold) && !is.null(fold$success) && fold$success) {
+      return(calc_fold_auc(fold$true_labels, fold$probabilities, problem_type))
+    } else {
+      return(NA)
+    }
+  })
+  fold_aucs <- fold_aucs[!is.na(fold_aucs)]
+  
+  # Compute confidence intervals (95%) using t-distribution
+  ci <- function(x, conf = 0.95) {
+    n <- length(x)
+    if (n < 2) return(c(NA, NA))
+    se <- sd(x) / sqrt(n)
+    me <- qt(1 - (1 - conf) / 2, df = n - 1) * se
+    return(c(mean(x) - me, mean(x) + me))
   }
+  
+  accuracy_ci <- ci(fold_accuracies)
+  auc_ci      <- ci(fold_aucs)
+  f1_ci       <- ci(fold_f1s)  
   
   return(list(
     overall_performance = performance,
     fold_accuracies = fold_accuracies,
     fold_aucs = fold_aucs,
+    fold_f1s = fold_f1s,
     mean_accuracy = if (length(fold_accuracies) > 0) mean(fold_accuracies) else NA,
-    sd_accuracy = if (length(fold_accuracies) > 0) sd(fold_accuracies) else NA,
-    mean_auc = if (!is.null(fold_aucs) && length(fold_aucs) > 0) mean(fold_aucs, na.rm = TRUE) else NA,
-    sd_auc = if (!is.null(fold_aucs) && length(fold_aucs) > 0) sd(fold_aucs, na.rm = TRUE) else NA
+    sd_accuracy   = if (length(fold_accuracies) > 0) sd(fold_accuracies) else NA,
+    mean_auc      = if (length(fold_aucs) > 0) mean(fold_aucs) else NA,
+    sd_auc        = if (length(fold_aucs) > 0) sd(fold_aucs) else NA,
+    mean_f1       = if (length(fold_f1s) > 0) mean(fold_f1s) else NA,
+    sd_f1         = if (length(fold_f1s) > 0) sd(fold_f1s) else NA,
+    accuracy_ci   = accuracy_ci,
+    auc_ci        = auc_ci,
+    f1_ci         = f1_ci
   ))
 }
 
