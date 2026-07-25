@@ -26,7 +26,7 @@ knitr::opts_chunk$set(tidy = FALSE,
 ```
 
 # Introduction
-Conventional static causal inference methods fail to capture the dynamic interplay of lncRNAs across diverse brain biological contexts. Here, we develop a hidden causality-based method DCRNet to infer dynamic lncRNA causal regulation in autism spectrum disorder (ASD). In this tutorial, we will show how to apply DCRNet into new data.
+Conventional static causal inference methods are limited to capture the dynamic interplay of lncRNAs across diverse brain biological contexts. Here, we develop a hidden causality-based method DCRNet to infer dynamic lncRNA causal regulation in autism spectrum disorder (ASD). In this tutorial, we will show how to apply DCRNet into new data.
 
 # Load required R packages
 DCRNet employs a hidden causality inference to delineate dynamic causal regulation by lncRNAs across diverse ASD biological contexts, such as diagnosis, region, age, sex, and cell type. Before applying DCRNet into new data, users need to install and load the the following 17 R packages. 
@@ -77,7 +77,12 @@ For convenience, the full list of our prepared single-nucleus RNA sequencing dat
 # Delineating dynamic lncRNA regulation in ASD 
 The utility functions for delineating dynamic lncRNA causal regulation are collected in the source file: **DCRNet.R**. In this tutorial, we select three sequential causality methods (DCRNet, Granger, seqICP) to infer dynamic lncRNA causal regulation from ASD single-nucleus RNA sequencing data. The priori information of lncRNA targets has two cases: None (no priori information), LncTar (priori information of LncTar).
 
-## Step 1: Identifying metacells
+```{r, eval=TRUE, include=TRUE}
+## Load Utility functions
+source("R/DCRNet.R")
+```
+
+## Step 1: Identifying metacells (The graining level (i.e., level of size reduction between the snRNA-seq and the metacell data) is generally recommended between 10 and 50. Based on a balanced consideration of the four metrics (including purity, compactness, separation, and inner normalized variance), DCRNet sets the graining level to 30 in this work.)
 ```{r, eval=TRUE, include=TRUE}
 # ASD
 ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_mRNAs_data, ASD_lncRNAs_data)),  # gene expression matrix 
@@ -512,7 +517,7 @@ ASTPP_Normal_SC30_GE <- supercell_GE(as.matrix(rbind(Control_celltype_mRNAs_list
 colnames(ASTPP_Normal_SC30_GE) <- paste("MC", seq(ncol(ASTPP_Normal_SC30_GE)), sep = "")
 ```
 
-## Step 2: Cell trajectory inference
+## Step 2: Cell trajectory inference (DCRNet applies a linear trajectory inference method SCORPIUS, which assumes simplified, unidirectional transitions between cell states. This choice is driven by the downstream causal inference, which requires a single, unambiguous temporal coordinate per cell.)
 ```{r, eval=TRUE, include=TRUE}
 # ASD and Normal
 ASD_space <- reduce_dimensionality(t(as.matrix(ASD_SC30_GE)), ndim =2)
@@ -1396,6 +1401,8 @@ ASTPP_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_seqI
 ASTPP_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_seqICP))
 
 ############################################################################ Incorporating priori information of lncRNA targets #########################################################################
+## To enhance the accuracy and biological interpretability of inferred lncRNA causal regulatory networks, we incorporate the priori information of lncRNA targets predicted by LncTar. We intentionally use LncTar predictions as a prior information filter rather than as the sole determinant of regulatory relationships.
+
 lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
 lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
 
@@ -1613,6 +1620,8 @@ ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTa
 ## Step 4: Validation with and without priori information
 ```{r, eval=TRUE, include=TRUE}
 ############################# 4.1 Validation with priori information #############################
+## For validation, the ground truth of lncRNA-mRNA interactions are acquired from RegNetwork, and we only retain the interactions with high or medium confidence scores.
+
 lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
 lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
 

@@ -2,7 +2,7 @@
 **Hidden causal inference delineates dynamic lncRNA regulation in autism spectrum disorder**
 
 ## :boom: Background
-Long non-coding RNAs (lncRNAs) are increasingly implicated in autism spectrum disorder (ASD), yet their causal regulatory mechanisms remain poorly characterized. Conventional static causal inference methods fail to capture the dynamic interplay of lncRNAs across diverse brain biological contexts. Here, we develop a hidden causality-based method **DCRNet** to infer dynamic lncRNA causal regulation in ASD.
+Long non-coding RNAs (lncRNAs) are increasingly implicated in autism spectrum disorder (ASD), yet their causal regulatory mechanisms remain poorly characterized. Conventional static causal inference methods are limited to capture the dynamic interplay of lncRNAs across diverse brain biological contexts. Here, we develop a hidden causality-based method **DCRNet** to infer dynamic lncRNA causal regulation in ASD.
 
 A schematic illustration of **DCRNet** is shown in the folowing.
 
@@ -56,7 +56,7 @@ effect <- 1:5133
 lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
 lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
 
-## Identifying metacells
+## Identifying metacells (The graining level (i.e., level of size reduction between the snRNA-seq and the metacell data) is generally recommended between 10 and 50. Based on a balanced consideration of the four metrics (including purity, compactness, separation, and inner normalized variance), DCRNet sets the graining level to 30 in this work.)
 # ASD
 ASD_SC30 <- SCimplify(as.matrix(rbind(ASD_mRNAs_data, ASD_lncRNAs_data)),  # gene expression matrix 
                       k.knn = 5, # number of nearest neighbors to build kNN network
@@ -75,7 +75,7 @@ Control_SC30 <- SCimplify(as.matrix(rbind(Control_mRNAs_data, Control_lncRNAs_da
 Control_SC30_GE <- supercell_GE(as.matrix(rbind(Control_mRNAs_data, Control_lncRNAs_data)), Control_SC30$membership)
 colnames(Control_SC30_GE) <- paste("MC", seq(ncol(Control_SC30_GE)), sep = "")
 
-## Cell trajectory inference
+## Cell trajectory inference (DCRNet applies a linear trajectory inference method SCORPIUS, which assumes simplified, unidirectional transitions between cell states. This choice is driven by the downstream causal inference, which requires a single, unambiguous temporal coordinate per cell.)
 # ASD and Control
 ASD_space <- reduce_dimensionality(t(as.matrix(ASD_SC30_GE)), ndim =2)
 Control_space <- reduce_dimensionality(t(as.matrix(Control_SC30_GE)), ndim = 2)
