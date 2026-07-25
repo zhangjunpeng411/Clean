@@ -7,10 +7,10 @@
 # data The input dataset, rows are samples and columns are genes.
 # cause	The number of integer positions of the cause variables in the dataset.
 # effect The number of integer positions of the target variables in the dataset.
-# E The embedding dimension, which influences the number of dimensions in which the time series is reconstructed for analysis.
-# tau The time delay used in reconstructing the time series in the embedded space.
+# E The embedding dimension, which influences the number of dimensions in which the time series is reconstructed for analysis. E = 3 is suggested.
+# tau The time delay used in reconstructing the time series in the embedded space. tau = 1 is suggested.
 # metric A character string indicating the distance metric to be used (e.g., 'euclidean', 'maximum').
-# h The prediction horizon, representing the number of steps ahead for which predictions are needed.
+# h The prediction horizon, representing the number of steps ahead for which predictions are needed. h = 1 is suggested.
 # weighted A logical indicating whether to use a weighted approach in the causality strength calculations.
 # tpb A bool parameter to show progress bar.
 # num.cores The numbers of CPU cores to run.

@@ -33,6 +33,7 @@ effect <- 1:5133
 
 ########################################################## Metacells construction #####################################################################
 ## Identifying metacells using SuperCell R package (https://github.com/GfellerLab/SuperCell)
+## The graining level (i.e., level of size reduction between the snRNA-seq and the metacell data) is generally recommended between 10 and 50.
 # ASD
 ASD_SC10 <- SCimplify(as.matrix(rbind(ASD_mRNAs_data, ASD_lncRNAs_data)),  # gene expression matrix 
                       k.knn = 5, # number of nearest neighbors to build kNN network
@@ -4218,6 +4219,8 @@ ASTPP_Normal_SC50_INV <- mc_INV(cell.membership = ASTPP_Normal_SC50_membership, 
 
 ############################################################################## Cell trajectory inference ##############################################################################
 ## Cell trajectory inference using SCORPIUS R package (https://CRAN.R-project.org/package=SCORPIUS)
+## DCRNet applies a linear trajectory inference method SCORPIUS, which assumes simplified, unidirectional transitions between cell states. This choice is driven by the downstream causal inference, which requires a single, unambiguous temporal coordinate per cell.
+
 # ASD and Normal
 ASD_space <- reduce_dimensionality(t(as.matrix(ASD_SC30_GE)), ndim =2)
 Normal_space <- reduce_dimensionality(t(as.matrix(Normal_SC30_GE)), ndim = 2)
@@ -5098,6 +5101,8 @@ ASTPP_ASD_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_seqI
 ASTPP_Normal_res_seqICP_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_seqICP))
 
 ############################################################################ Incorporating priori information of lncRNA targets #########################################################################
+## To enhance the accuracy and biological interpretability of inferred lncRNA causal regulatory networks, we incorporate the priori information of lncRNA targets predicted by LncTar. We intentionally use LncTar predictions as a prior information filter rather than as the sole determinant of regulatory relationships.
+
 lncRTarget_priori <- as.matrix(read.csv("LncTar.csv", header = TRUE, sep=","))
 lncRTarget_priori_graph <- make_graph(c(t(lncRTarget_priori[, 1:2])), directed = FALSE)
 
@@ -5314,6 +5319,8 @@ ASTPP_Normal_res_seqICP_priori_graph <- ASTPP_Normal_res_seqICP_graph %s% lncRTa
 ########################################################################### Downstream analysis ################################################################################################
 ####################################### 1. Validation ############################################# 
 ############################# 1.1. Validation with priori information #############################
+## For validation, the ground truth of lncRNA-mRNA interactions are acquired from RegNetwork, and we only retain the interactions with high or medium confidence scores.
+
 lncRTarget_groundtruth <- as.matrix(read.csv("RegNetwork_high+medium.csv", header = TRUE, sep=","))
 lncRTarget_groundtruth_graph <- make_graph(c(t(lncRTarget_groundtruth[, 1:2])), directed = FALSE)
 
@@ -5793,7 +5800,7 @@ age_Het <- Het.network(lncR_age_net, lncR_age_net)
 sex_Het <- Het.network(lncR_sex_net, lncR_sex_net)
 celltype_Het <- Het.network(lncR_celltype_net, lncR_celltype_net)
 
-############################# 3. ASD lncRNAs identification and enrichemnt analysis #############################
+############################# 3. ASD susceptibility lncRNAs identification and enrichemnt analysis #############################
 Dif_res_darkcausality_priori_graph <- (ASD_res_darkcausality_priori_graph %m% Normal_res_darkcausality_priori_graph) %u% (Normal_res_darkcausality_priori_graph %m% ASD_res_darkcausality_priori_graph)
 Dif_lncRNA_list <- unique(tail_of(Dif_res_darkcausality_priori_graph, E(Dif_res_darkcausality_priori_graph))$name)
 Dif_mRNA_list <- lapply(seq(Dif_lncRNA_list), function(i) neighbors(Dif_res_darkcausality_priori_graph, Dif_lncRNA_list[i])$name)
