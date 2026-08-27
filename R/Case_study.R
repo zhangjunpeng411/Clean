@@ -20,6 +20,8 @@ library(SCORPIUS)
 library(e1071)    
 library(caret)    
 library(pROC)
+library(Cycle)
+library(data.table)
 
 ## Load Utility functions
 source("R/DCRNet.R")
@@ -4822,6 +4824,193 @@ ASTPP_Normal_res_darkcausality_sig <- sigPC(ASTPP_Normal_res_darkcausality[[2]],
 ASTPP_ASD_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTPP_ASD_res_darkcausality_sig[[1]] + ASTPP_ASD_res_darkcausality_sig[[2]] + ASTPP_ASD_res_darkcausality_sig[[3]]))
 ASTPP_Normal_res_darkcausality_graph <- graph_from_biadjacency_matrix(t(ASTPP_Normal_res_darkcausality_sig[[1]] + ASTPP_Normal_res_darkcausality_sig[[2]] + ASTPP_Normal_res_darkcausality_sig[[3]]))
 
+################################################################################  Cycle application ############################################################################
+## ASD and Normal
+ASD_res_Cycle <- Cycle_network(ASD_model_data[, cause], ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Normal_res_Cycle <- Cycle_network(Normal_model_data[, cause], Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ASD_res_Cycle_0.9 <- Overlap.net(ASD_res_Cycle, overlap.num = round(nrow(ASD_model_data) * 0.9), type = "least")
+Normal_res_Cycle_0.9 <- Overlap.net(Normal_res_Cycle, overlap.num = round(nrow(Normal_model_data) * 0.9), type = "least")
+ASD_res_Cycle_graph <- make_graph(c(t(ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Normal_res_Cycle_graph <- make_graph(c(t(Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# ACC_ASD, ACC_Normal, PFC_ASD, PFC_Normal
+ACC_ASD_res_Cycle <- Cycle_network(ACC_ASD_model_data[, cause], ACC_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ACC_Normal_res_Cycle <- Cycle_network(ACC_Normal_model_data[, cause], ACC_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+PFC_ASD_res_Cycle <- Cycle_network(PFC_ASD_model_data[, cause], PFC_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+PFC_Normal_res_Cycle <- Cycle_network(PFC_Normal_model_data[, cause], PFC_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ACC_ASD_res_Cycle_0.9 <- Overlap.net(ACC_ASD_res_Cycle, overlap.num = round(nrow(ACC_ASD_model_data) * 0.9), type = "least")
+ACC_Normal_res_Cycle_0.9 <- Overlap.net(ACC_Normal_res_Cycle, overlap.num = round(nrow(ACC_Normal_model_data) * 0.9), type = "least")
+PFC_ASD_res_Cycle_0.9 <- Overlap.net(PFC_ASD_res_Cycle, overlap.num = round(nrow(PFC_ASD_model_data) * 0.9), type = "least")
+PFC_Normal_res_Cycle_0.9 <- Overlap.net(PFC_Normal_res_Cycle, overlap.num = round(nrow(PFC_Normal_model_data) * 0.9), type = "least")
+ACC_ASD_res_Cycle_graph <- make_graph(c(t(ACC_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+ACC_Normal_res_Cycle_graph <- make_graph(c(t(ACC_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+PFC_ASD_res_Cycle_graph <- make_graph(c(t(PFC_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+PFC_Normal_res_Cycle_graph <- make_graph(c(t(PFC_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Lower18_ASD, Lower18_Normal, Larger18_ASD, Larger18_Normal
+Lower18_ASD_res_Cycle <- Cycle_network(Lower18_ASD_model_data[, cause], Lower18_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Lower18_Normal_res_Cycle <- Cycle_network(Lower18_Normal_model_data[, cause], Lower18_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Larger18_ASD_res_Cycle <- Cycle_network(Larger18_ASD_model_data[, cause], Larger18_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Larger18_Normal_res_Cycle <- Cycle_network(Larger18_Normal_model_data[, cause], Larger18_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Lower18_ASD_res_Cycle_0.9 <- Overlap.net(Lower18_ASD_res_Cycle, overlap.num = round(nrow(Lower18_ASD_model_data) * 0.9), type = "least")
+Lower18_Normal_res_Cycle_0.9 <- Overlap.net(Lower18_Normal_res_Cycle, overlap.num = round(nrow(Lower18_Normal_model_data) * 0.9), type = "least")
+Larger18_ASD_res_Cycle_0.9 <- Overlap.net(Larger18_ASD_res_Cycle, overlap.num = round(nrow(Larger18_ASD_model_data) * 0.9), type = "least")
+Larger18_Normal_res_Cycle_0.9 <- Overlap.net(Larger18_Normal_res_Cycle, overlap.num = round(nrow(Larger18_Normal_model_data) * 0.9), type = "least")
+Lower18_ASD_res_Cycle_graph <- make_graph(c(t(Lower18_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Lower18_Normal_res_Cycle_graph <- make_graph(c(t(Lower18_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Larger18_ASD_res_Cycle_graph <- make_graph(c(t(Larger18_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Larger18_Normal_res_Cycle_graph <- make_graph(c(t(Larger18_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Male_ASD, Male_Normal, Female_ASD, Female_Normal
+Male_ASD_res_Cycle <- Cycle_network(Male_ASD_model_data[, cause], Male_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Male_Normal_res_Cycle <- Cycle_network(Male_Normal_model_data[, cause], Male_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Female_ASD_res_Cycle <- Cycle_network(Female_ASD_model_data[, cause], Female_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Female_Normal_res_Cycle <- Cycle_network(Female_Normal_model_data[, cause], Female_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Male_ASD_res_Cycle_0.9 <- Overlap.net(Male_ASD_res_Cycle, overlap.num = round(nrow(Male_ASD_model_data) * 0.9), type = "least")
+Male_Normal_res_Cycle_0.9 <- Overlap.net(Male_Normal_res_Cycle, overlap.num = round(nrow(Male_Normal_model_data) * 0.9), type = "least")
+Female_ASD_res_Cycle_0.9 <- Overlap.net(Female_ASD_res_Cycle, overlap.num = round(nrow(Female_ASD_model_data) * 0.9), type = "least")
+Female_Normal_res_Cycle_0.9 <- Overlap.net(Female_Normal_res_Cycle, overlap.num = round(nrow(Female_Normal_model_data) * 0.9), type = "least")
+Male_ASD_res_Cycle_graph <- make_graph(c(t(Male_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Male_Normal_res_Cycle_graph <- make_graph(c(t(Male_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Female_ASD_res_Cycle_graph <- make_graph(c(t(Female_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Female_Normal_res_Cycle_graph <- make_graph(c(t(Female_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# NeuNRGNII_ASD, NeuNRGNII_Normal
+NeuNRGNII_ASD_res_Cycle <- Cycle_network(NeuNRGNII_ASD_model_data[, cause], NeuNRGNII_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+NeuNRGNII_Normal_res_Cycle <- Cycle_network(NeuNRGNII_Normal_model_data[, cause], NeuNRGNII_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+NeuNRGNII_ASD_res_Cycle_0.9 <- Overlap.net(NeuNRGNII_ASD_res_Cycle, overlap.num = round(nrow(NeuNRGNII_ASD_model_data) * 0.9), type = "least")
+NeuNRGNII_Normal_res_Cycle_0.9 <- Overlap.net(NeuNRGNII_Normal_res_Cycle, overlap.num = round(nrow(NeuNRGNII_Normal_model_data) * 0.9), type = "least")
+NeuNRGNII_ASD_res_Cycle_graph <- make_graph(c(t(NeuNRGNII_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+NeuNRGNII_Normal_res_Cycle_graph <- make_graph(c(t(NeuNRGNII_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# L56_ASD, L56_Normal
+L56_ASD_res_Cycle <- Cycle_network(L56_ASD_model_data[, cause], L56_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L56_Normal_res_Cycle <- Cycle_network(L56_Normal_model_data[, cause], L56_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L56_ASD_res_Cycle_0.9 <- Overlap.net(L56_ASD_res_Cycle, overlap.num = round(nrow(L56_ASD_model_data) * 0.9), type = "least")
+L56_Normal_res_Cycle_0.9 <- Overlap.net(L56_Normal_res_Cycle, overlap.num = round(nrow(L56_Normal_model_data) * 0.9), type = "least")
+L56_ASD_res_Cycle_graph <- make_graph(c(t(L56_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+L56_Normal_res_Cycle_graph <- make_graph(c(t(L56_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Oligodendrocytes_ASD, Oligodendrocytes_Normal
+Oligodendrocytes_ASD_res_Cycle <- Cycle_network(Oligodendrocytes_ASD_model_data[, cause], Oligodendrocytes_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Oligodendrocytes_Normal_res_Cycle <- Cycle_network(Oligodendrocytes_Normal_model_data[, cause], Oligodendrocytes_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Oligodendrocytes_ASD_res_Cycle_0.9 <- Overlap.net(Oligodendrocytes_ASD_res_Cycle, overlap.num = round(nrow(Oligodendrocytes_ASD_model_data) * 0.9), type = "least")
+Oligodendrocytes_Normal_res_Cycle_0.9 <- Overlap.net(Oligodendrocytes_Normal_res_Cycle, overlap.num = round(nrow(Oligodendrocytes_Normal_model_data) * 0.9), type = "least")
+Oligodendrocytes_ASD_res_Cycle_graph <- make_graph(c(t(Oligodendrocytes_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Oligodendrocytes_Normal_res_Cycle_graph <- make_graph(c(t(Oligodendrocytes_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# OPC_ASD, OPC_Normal
+OPC_ASD_res_Cycle <- Cycle_network(OPC_ASD_model_data[, cause], OPC_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+OPC_Normal_res_Cycle <- Cycle_network(OPC_Normal_model_data[, cause], OPC_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+OPC_ASD_res_Cycle_0.9 <- Overlap.net(OPC_ASD_res_Cycle, overlap.num = round(nrow(OPC_ASD_model_data) * 0.9), type = "least")
+OPC_Normal_res_Cycle_0.9 <- Overlap.net(OPC_Normal_res_Cycle, overlap.num = round(nrow(OPC_Normal_model_data) * 0.9), type = "least")
+OPC_ASD_res_Cycle_graph <- make_graph(c(t(OPC_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+OPC_Normal_res_Cycle_graph <- make_graph(c(t(OPC_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# ASTFB_ASD, ASTFB_Normal
+ASTFB_ASD_res_Cycle <- Cycle_network(ASTFB_ASD_model_data[, cause], ASTFB_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ASTFB_Normal_res_Cycle <- Cycle_network(ASTFB_Normal_model_data[, cause], ASTFB_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ASTFB_ASD_res_Cycle_0.9 <- Overlap.net(ASTFB_ASD_res_Cycle, overlap.num = round(nrow(ASTFB_ASD_model_data) * 0.9), type = "least")
+ASTFB_Normal_res_Cycle_0.9 <- Overlap.net(ASTFB_Normal_res_Cycle, overlap.num = round(nrow(ASTFB_Normal_model_data) * 0.9), type = "least")
+ASTFB_ASD_res_Cycle_graph <- make_graph(c(t(ASTFB_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+ASTFB_Normal_res_Cycle_graph <- make_graph(c(t(ASTFB_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Endothelial_ASD, Endothelial_Normal
+Endothelial_ASD_res_Cycle <- Cycle_network(Endothelial_ASD_model_data[, cause], Endothelial_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Endothelial_Normal_res_Cycle <- Cycle_network(Endothelial_Normal_model_data[, cause], Endothelial_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Endothelial_ASD_res_Cycle_0.9 <- Overlap.net(Endothelial_ASD_res_Cycle, overlap.num = round(nrow(Endothelial_ASD_model_data) * 0.9), type = "least")
+Endothelial_Normal_res_Cycle_0.9 <- Overlap.net(Endothelial_Normal_res_Cycle, overlap.num = round(nrow(Endothelial_Normal_model_data) * 0.9), type = "least")
+Endothelial_ASD_res_Cycle_graph <- make_graph(c(t(Endothelial_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Endothelial_Normal_res_Cycle_graph <- make_graph(c(t(Endothelial_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Microglia_ASD, Microglia_Normal
+Microglia_ASD_res_Cycle <- Cycle_network(Microglia_ASD_model_data[, cause], Microglia_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Microglia_Normal_res_Cycle <- Cycle_network(Microglia_Normal_model_data[, cause], Microglia_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Microglia_ASD_res_Cycle_0.9 <- Overlap.net(Microglia_ASD_res_Cycle, overlap.num = round(nrow(Microglia_ASD_model_data) * 0.9), type = "least")
+Microglia_Normal_res_Cycle_0.9 <- Overlap.net(Microglia_Normal_res_Cycle, overlap.num = round(nrow(Microglia_Normal_model_data) * 0.9), type = "least")
+Microglia_ASD_res_Cycle_graph <- make_graph(c(t(Microglia_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Microglia_Normal_res_Cycle_graph <- make_graph(c(t(Microglia_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# NeuNRGNI_ASD, NeuNRGNI_Normal
+NeuNRGNI_ASD_res_Cycle <- Cycle_network(NeuNRGNI_ASD_model_data[, cause], NeuNRGNI_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+NeuNRGNI_Normal_res_Cycle <- Cycle_network(NeuNRGNI_Normal_model_data[, cause], NeuNRGNI_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+NeuNRGNI_ASD_res_Cycle_0.9 <- Overlap.net(NeuNRGNI_ASD_res_Cycle, overlap.num = round(nrow(NeuNRGNI_ASD_model_data) * 0.9), type = "least")
+NeuNRGNI_Normal_res_Cycle_0.9 <- Overlap.net(NeuNRGNI_Normal_res_Cycle, overlap.num = round(nrow(NeuNRGNI_Normal_model_data) * 0.9), type = "least")
+NeuNRGNI_ASD_res_Cycle_graph <- make_graph(c(t(NeuNRGNI_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+NeuNRGNI_Normal_res_Cycle_graph <- make_graph(c(t(NeuNRGNI_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# INVIP_ASD, INVIP_Normal
+INVIP_ASD_res_Cycle <- Cycle_network(INVIP_ASD_model_data[, cause], INVIP_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INVIP_Normal_res_Cycle <- Cycle_network(INVIP_Normal_model_data[, cause], INVIP_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INVIP_ASD_res_Cycle_0.9 <- Overlap.net(INVIP_ASD_res_Cycle, overlap.num = round(nrow(INVIP_ASD_model_data) * 0.9), type = "least")
+INVIP_Normal_res_Cycle_0.9 <- Overlap.net(INVIP_Normal_res_Cycle, overlap.num = round(nrow(INVIP_Normal_model_data) * 0.9), type = "least")
+INVIP_ASD_res_Cycle_graph <- make_graph(c(t(INVIP_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+INVIP_Normal_res_Cycle_graph <- make_graph(c(t(INVIP_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# L56CC_ASD, L56CC_Normal
+L56CC_ASD_res_Cycle <- Cycle_network(L56CC_ASD_model_data[, cause], L56CC_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L56CC_Normal_res_Cycle <- Cycle_network(L56CC_Normal_model_data[, cause], L56CC_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L56CC_ASD_res_Cycle_0.9 <- Overlap.net(L56CC_ASD_res_Cycle, overlap.num = round(nrow(L56CC_ASD_model_data) * 0.9), type = "least")
+L56CC_Normal_res_Cycle_0.9 <- Overlap.net(L56CC_Normal_res_Cycle, overlap.num = round(nrow(L56CC_Normal_model_data) * 0.9), type = "least")
+L56CC_ASD_res_Cycle_graph <- make_graph(c(t(L56CC_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+L56CC_Normal_res_Cycle_graph <- make_graph(c(t(L56CC_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# INSV2C_ASD, INSV2C_Normal
+INSV2C_ASD_res_Cycle <- Cycle_network(INSV2C_ASD_model_data[, cause], INSV2C_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INSV2C_Normal_res_Cycle <- Cycle_network(INSV2C_Normal_model_data[, cause], INSV2C_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INSV2C_ASD_res_Cycle_0.9 <- Overlap.net(INSV2C_ASD_res_Cycle, overlap.num = round(nrow(INSV2C_ASD_model_data) * 0.9), type = "least")
+INSV2C_Normal_res_Cycle_0.9 <- Overlap.net(INSV2C_Normal_res_Cycle, overlap.num = round(nrow(INSV2C_Normal_model_data) * 0.9), type = "least")
+INSV2C_ASD_res_Cycle_graph <- make_graph(c(t(INSV2C_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+INSV2C_Normal_res_Cycle_graph <- make_graph(c(t(INSV2C_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# L23_ASD, L23_Normal
+L23_ASD_res_Cycle <- Cycle_network(L23_ASD_model_data[, cause], L23_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L23_Normal_res_Cycle <- Cycle_network(L23_Normal_model_data[, cause], L23_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L23_ASD_res_Cycle_0.9 <- Overlap.net(L23_ASD_res_Cycle, overlap.num = round(nrow(L23_ASD_model_data) * 0.9), type = "least")
+L23_Normal_res_Cycle_0.9 <- Overlap.net(L23_Normal_res_Cycle, overlap.num = round(nrow(L23_Normal_model_data) * 0.9), type = "least")
+L23_ASD_res_Cycle_graph <- make_graph(c(t(L23_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+L23_Normal_res_Cycle_graph <- make_graph(c(t(L23_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# INPV_ASD, INPV_Normal
+INPV_ASD_res_Cycle <- Cycle_network(INPV_ASD_model_data[, cause], INPV_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INPV_Normal_res_Cycle <- Cycle_network(INPV_Normal_model_data[, cause], INPV_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INPV_ASD_res_Cycle_0.9 <- Overlap.net(INPV_ASD_res_Cycle, overlap.num = round(nrow(INPV_ASD_model_data) * 0.9), type = "least")
+INPV_Normal_res_Cycle_0.9 <- Overlap.net(INPV_Normal_res_Cycle, overlap.num = round(nrow(INPV_Normal_model_data) * 0.9), type = "least")
+INPV_ASD_res_Cycle_graph <- make_graph(c(t(INPV_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+INPV_Normal_res_Cycle_graph <- make_graph(c(t(INPV_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# L4_ASD, L4_Normal
+L4_ASD_res_Cycle <- Cycle_network(L4_ASD_model_data[, cause], L4_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L4_Normal_res_Cycle <- Cycle_network(L4_Normal_model_data[, cause], L4_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+L4_ASD_res_Cycle_0.9 <- Overlap.net(L4_ASD_res_Cycle, overlap.num = round(nrow(L4_ASD_model_data) * 0.9), type = "least")
+L4_Normal_res_Cycle_0.9 <- Overlap.net(L4_Normal_res_Cycle, overlap.num = round(nrow(L4_Normal_model_data) * 0.9), type = "least")
+L4_ASD_res_Cycle_graph <- make_graph(c(t(L4_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+L4_Normal_res_Cycle_graph <- make_graph(c(t(L4_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# INSST_ASD, INSST_Normal
+INSST_ASD_res_Cycle <- Cycle_network(INSST_ASD_model_data[, cause], INSST_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INSST_Normal_res_Cycle <- Cycle_network(INSST_Normal_model_data[, cause], INSST_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+INSST_ASD_res_Cycle_0.9 <- Overlap.net(INSST_ASD_res_Cycle, overlap.num = round(nrow(INSST_ASD_model_data) * 0.9), type = "least")
+INSST_Normal_res_Cycle_0.9 <- Overlap.net(INSST_Normal_res_Cycle, overlap.num = round(nrow(INSST_Normal_model_data) * 0.9), type = "least")
+INSST_ASD_res_Cycle_graph <- make_graph(c(t(INSST_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+INSST_Normal_res_Cycle_graph <- make_graph(c(t(INSST_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# Neumat_ASD, Neumat_Normal
+Neumat_ASD_res_Cycle <- Cycle_network(Neumat_ASD_model_data[, cause], Neumat_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Neumat_Normal_res_Cycle <- Cycle_network(Neumat_Normal_model_data[, cause], Neumat_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+Neumat_ASD_res_Cycle_0.9 <- Overlap.net(Neumat_ASD_res_Cycle, overlap.num = round(nrow(Neumat_ASD_model_data) * 0.9), type = "least")
+Neumat_Normal_res_Cycle_0.9 <- Overlap.net(Neumat_Normal_res_Cycle, overlap.num = round(nrow(Neumat_Normal_model_data) * 0.9), type = "least")
+Neumat_ASD_res_Cycle_graph <- make_graph(c(t(Neumat_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+Neumat_Normal_res_Cycle_graph <- make_graph(c(t(Neumat_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
+# ASTPP_ASD, ASTPP_Normal
+ASTPP_ASD_res_Cycle <- Cycle_network(ASTPP_ASD_model_data[, cause], ASTPP_ASD_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ASTPP_Normal_res_Cycle <- Cycle_network(ASTPP_Normal_model_data[, cause], ASTPP_Normal_model_data[, effect], p.value.cutoff = 0.01, num.cores = 48)
+ASTPP_ASD_res_Cycle_0.9 <- Overlap.net(ASTPP_ASD_res_Cycle, overlap.num = round(nrow(ASTPP_ASD_model_data) * 0.9), type = "least")
+ASTPP_Normal_res_Cycle_0.9 <- Overlap.net(ASTPP_Normal_res_Cycle, overlap.num = round(nrow(ASTPP_Normal_model_data) * 0.9), type = "least")
+ASTPP_ASD_res_Cycle_graph <- make_graph(c(t(ASTPP_ASD_res_Cycle_0.9[, 1:2])), directed = FALSE)
+ASTPP_Normal_res_Cycle_graph <- make_graph(c(t(ASTPP_Normal_res_Cycle_0.9[, 1:2])), directed = FALSE)
+
 ################################################################################  Granger application ############################################################################
 # ASD and Normal
 ASD_res_granger <- granger_parallel(ASD_model_data, cause, effect, pvalue_cutoff = 0.01, num.cores = 48)
@@ -5176,6 +5365,76 @@ Neumat_Normal_res_darkcausality_priori_graph <- Neumat_Normal_res_darkcausality_
 ASTPP_ASD_res_darkcausality_priori_graph <- ASTPP_ASD_res_darkcausality_graph %s% lncRTarget_priori_graph
 ASTPP_Normal_res_darkcausality_priori_graph <- ASTPP_Normal_res_darkcausality_graph %s% lncRTarget_priori_graph
 
+# Cycle
+ASD_res_Cycle_priori_graph <- ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Normal_res_Cycle_priori_graph <- Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+ACC_ASD_res_Cycle_priori_graph <- ACC_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+ACC_Normal_res_Cycle_priori_graph <- ACC_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+PFC_ASD_res_Cycle_priori_graph <- PFC_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+PFC_Normal_res_Cycle_priori_graph <- PFC_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Lower18_ASD_res_Cycle_priori_graph <- Lower18_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Lower18_Normal_res_Cycle_priori_graph <- Lower18_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+Larger18_ASD_res_Cycle_priori_graph <- Larger18_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Larger18_Normal_res_Cycle_priori_graph <- Larger18_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Male_ASD_res_Cycle_priori_graph <- Male_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Male_Normal_res_Cycle_priori_graph <- Male_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+Female_ASD_res_Cycle_priori_graph <- Female_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Female_Normal_res_Cycle_priori_graph <- Female_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+NeuNRGNII_ASD_res_Cycle_priori_graph <- NeuNRGNII_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+NeuNRGNII_Normal_res_Cycle_priori_graph <- NeuNRGNII_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+L56_ASD_res_Cycle_priori_graph <- L56_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+L56_Normal_res_Cycle_priori_graph <- L56_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Oligodendrocytes_ASD_res_Cycle_priori_graph <- Oligodendrocytes_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Oligodendrocytes_Normal_res_Cycle_priori_graph <- Oligodendrocytes_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+OPC_ASD_res_Cycle_priori_graph <- OPC_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+OPC_Normal_res_Cycle_priori_graph <- OPC_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+ASTFB_ASD_res_Cycle_priori_graph <- ASTFB_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+ASTFB_Normal_res_Cycle_priori_graph <- ASTFB_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Endothelial_ASD_res_Cycle_priori_graph <- Endothelial_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Endothelial_Normal_res_Cycle_priori_graph <- Endothelial_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Microglia_ASD_res_Cycle_priori_graph <- Microglia_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Microglia_Normal_res_Cycle_priori_graph <- Microglia_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+NeuNRGNI_ASD_res_Cycle_priori_graph <- NeuNRGNI_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+NeuNRGNI_Normal_res_Cycle_priori_graph <- NeuNRGNI_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+INVIP_ASD_res_Cycle_priori_graph <- INVIP_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+INVIP_Normal_res_Cycle_priori_graph <- INVIP_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+L56CC_ASD_res_Cycle_priori_graph <- L56CC_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+L56CC_Normal_res_Cycle_priori_graph <- L56CC_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+INSV2C_ASD_res_Cycle_priori_graph <- INSV2C_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+INSV2C_Normal_res_Cycle_priori_graph <- INSV2C_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+L23_ASD_res_Cycle_priori_graph <- L23_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+L23_Normal_res_Cycle_priori_graph <- L23_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+INPV_ASD_res_Cycle_priori_graph <- INPV_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+INPV_Normal_res_Cycle_priori_graph <- INPV_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+L4_ASD_res_Cycle_priori_graph <- L4_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+L4_Normal_res_Cycle_priori_graph <- L4_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+INSST_ASD_res_Cycle_priori_graph <- INSST_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+INSST_Normal_res_Cycle_priori_graph <- INSST_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+Neumat_ASD_res_Cycle_priori_graph <- Neumat_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+Neumat_Normal_res_Cycle_priori_graph <- Neumat_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
+ASTPP_ASD_res_Cycle_priori_graph <- ASTPP_ASD_res_Cycle_graph %s% lncRTarget_priori_graph
+ASTPP_Normal_res_Cycle_priori_graph <- ASTPP_Normal_res_Cycle_graph %s% lncRTarget_priori_graph
+
 # Granger
 ASD_res_granger_priori_graph <- ASD_res_granger_graph %s% lncRTarget_priori_graph
 Normal_res_granger_priori_graph <- Normal_res_granger_graph %s% lncRTarget_priori_graph
@@ -5394,6 +5653,76 @@ Neumat_Normal_res_darkcausality_priori_validated <- as_data_frame(Neumat_Normal_
 ASTPP_ASD_res_darkcausality_priori_validated <- as_data_frame(ASTPP_ASD_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
 ASTPP_Normal_res_darkcausality_priori_validated <- as_data_frame(ASTPP_Normal_res_darkcausality_priori_graph %s% lncRTarget_groundtruth_graph)
 
+# Cycle
+ASD_res_Cycle_priori_validated <- as_data_frame(ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_Cycle_priori_validated <- as_data_frame(Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_Cycle_priori_validated <- as_data_frame(ACC_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_Cycle_priori_validated <- as_data_frame(ACC_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_Cycle_priori_validated <- as_data_frame(PFC_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_Cycle_priori_validated <- as_data_frame(PFC_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_Cycle_priori_validated <- as_data_frame(Lower18_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_Cycle_priori_validated <- as_data_frame(Lower18_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_Cycle_priori_validated <- as_data_frame(Larger18_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_Cycle_priori_validated <- as_data_frame(Larger18_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_Cycle_priori_validated <- as_data_frame(Male_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_Cycle_priori_validated <- as_data_frame(Male_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_Cycle_priori_validated <- as_data_frame(Female_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_Cycle_priori_validated <- as_data_frame(Female_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_Cycle_priori_validated <- as_data_frame(NeuNRGNII_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_Cycle_priori_validated <- as_data_frame(NeuNRGNII_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_Cycle_priori_validated <- as_data_frame(L56_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_Cycle_priori_validated <- as_data_frame(L56_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_Cycle_priori_validated <- as_data_frame(Oligodendrocytes_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_Cycle_priori_validated <- as_data_frame(Oligodendrocytes_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_Cycle_priori_validated <- as_data_frame(OPC_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_Cycle_priori_validated <- as_data_frame(OPC_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_Cycle_priori_validated <- as_data_frame(ASTFB_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_Cycle_priori_validated <- as_data_frame(ASTFB_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_Cycle_priori_validated <- as_data_frame(Endothelial_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_Cycle_priori_validated <- as_data_frame(Endothelial_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_Cycle_priori_validated <- as_data_frame(Microglia_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_Cycle_priori_validated <- as_data_frame(Microglia_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_Cycle_priori_validated <- as_data_frame(NeuNRGNI_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_Cycle_priori_validated <- as_data_frame(NeuNRGNI_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_Cycle_priori_validated <- as_data_frame(INVIP_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_Cycle_priori_validated <- as_data_frame(INVIP_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_Cycle_priori_validated <- as_data_frame(L56CC_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_Cycle_priori_validated <- as_data_frame(L56CC_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_Cycle_priori_validated <- as_data_frame(INSV2C_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_Cycle_priori_validated <- as_data_frame(INSV2C_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_Cycle_priori_validated <- as_data_frame(L23_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_Cycle_priori_validated <- as_data_frame(L23_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_Cycle_priori_validated <- as_data_frame(INPV_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_Cycle_priori_validated <- as_data_frame(INPV_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_Cycle_priori_validated <- as_data_frame(L4_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_Cycle_priori_validated <- as_data_frame(L4_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_Cycle_priori_validated <- as_data_frame(INSST_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_Cycle_priori_validated <- as_data_frame(INSST_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_Cycle_priori_validated <- as_data_frame(Neumat_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_Cycle_priori_validated <- as_data_frame(Neumat_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_Cycle_priori_validated <- as_data_frame(ASTPP_ASD_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_Cycle_priori_validated <- as_data_frame(ASTPP_Normal_res_Cycle_priori_graph %s% lncRTarget_groundtruth_graph)
+
 # Granger
 ASD_res_granger_priori_validated <- as_data_frame(ASD_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
 Normal_res_granger_priori_validated <- as_data_frame(Normal_res_granger_priori_graph %s% lncRTarget_groundtruth_graph)
@@ -5604,6 +5933,76 @@ Neumat_Normal_res_darkcausality_validated <- as_data_frame(Neumat_Normal_res_dar
 
 ASTPP_ASD_res_darkcausality_validated <- as_data_frame(ASTPP_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
 ASTPP_Normal_res_darkcausality_validated <- as_data_frame(ASTPP_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
+
+# Cycle
+ASD_res_Cycle_validated <- as_data_frame(ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_Cycle_validated <- as_data_frame(Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+ACC_ASD_res_Cycle_validated <- as_data_frame(ACC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_Cycle_validated <- as_data_frame(ACC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_Cycle_validated <- as_data_frame(PFC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_Cycle_validated <- as_data_frame(PFC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Lower18_ASD_res_Cycle_validated <- as_data_frame(Lower18_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_Cycle_validated <- as_data_frame(Lower18_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_Cycle_validated <- as_data_frame(Larger18_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_Cycle_validated <- as_data_frame(Larger18_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Male_ASD_res_Cycle_validated <- as_data_frame(Male_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_Cycle_validated <- as_data_frame(Male_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_Cycle_validated <- as_data_frame(Female_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_Cycle_validated <- as_data_frame(Female_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNII_ASD_res_Cycle_validated <- as_data_frame(NeuNRGNII_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_Cycle_validated <- as_data_frame(NeuNRGNII_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+L56_ASD_res_Cycle_validated <- as_data_frame(L56_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_Cycle_validated <- as_data_frame(L56_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Oligodendrocytes_ASD_res_Cycle_validated <- as_data_frame(Oligodendrocytes_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_Cycle_validated <- as_data_frame(Oligodendrocytes_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+OPC_ASD_res_Cycle_validated <- as_data_frame(OPC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_Cycle_validated <- as_data_frame(OPC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+ASTFB_ASD_res_Cycle_validated <- as_data_frame(ASTFB_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_Cycle_validated <- as_data_frame(ASTFB_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Endothelial_ASD_res_Cycle_validated <- as_data_frame(Endothelial_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_Cycle_validated <- as_data_frame(Endothelial_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Microglia_ASD_res_Cycle_validated <- as_data_frame(Microglia_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_Cycle_validated <- as_data_frame(Microglia_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+NeuNRGNI_ASD_res_Cycle_validated <- as_data_frame(NeuNRGNI_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_Cycle_validated <- as_data_frame(NeuNRGNI_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+INVIP_ASD_res_Cycle_validated <- as_data_frame(INVIP_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_Cycle_validated <- as_data_frame(INVIP_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+L56CC_ASD_res_Cycle_validated <- as_data_frame(L56CC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_Cycle_validated <- as_data_frame(L56CC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+INSV2C_ASD_res_Cycle_validated <- as_data_frame(INSV2C_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_Cycle_validated <- as_data_frame(INSV2C_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+L23_ASD_res_Cycle_validated <- as_data_frame(L23_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_Cycle_validated <- as_data_frame(L23_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+INPV_ASD_res_Cycle_validated <- as_data_frame(INPV_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_Cycle_validated <- as_data_frame(INPV_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+L4_ASD_res_Cycle_validated <- as_data_frame(L4_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_Cycle_validated <- as_data_frame(L4_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+INSST_ASD_res_Cycle_validated <- as_data_frame(INSST_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_Cycle_validated <- as_data_frame(INSST_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+Neumat_ASD_res_Cycle_validated <- as_data_frame(Neumat_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_Cycle_validated <- as_data_frame(Neumat_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+
+ASTPP_ASD_res_Cycle_validated <- as_data_frame(ASTPP_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_Cycle_validated <- as_data_frame(ASTPP_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
 # Granger
 ASD_res_granger_validated <- as_data_frame(ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
