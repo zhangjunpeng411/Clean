@@ -2235,75 +2235,75 @@ Neumat_Normal_res_darkcausality_validated <- as_data_frame(Neumat_Normal_res_dar
 ASTPP_ASD_res_darkcausality_validated <- as_data_frame(ASTPP_ASD_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
 ASTPP_Normal_res_darkcausality_validated <- as_data_frame(ASTPP_Normal_res_darkcausality_graph %s% lncRTarget_groundtruth_graph)
 
-# Granger
-ASD_res_granger_validated <- as_data_frame(ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Normal_res_granger_validated <- as_data_frame(Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+# Cycle
+ASD_res_Cycle_validated <- as_data_frame(ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Normal_res_Cycle_validated <- as_data_frame(Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-ACC_ASD_res_granger_validated <- as_data_frame(ACC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-ACC_Normal_res_granger_validated <- as_data_frame(ACC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
-PFC_ASD_res_granger_validated <- as_data_frame(PFC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-PFC_Normal_res_granger_validated <- as_data_frame(PFC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ACC_ASD_res_Cycle_validated <- as_data_frame(ACC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ACC_Normal_res_Cycle_validated <- as_data_frame(ACC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+PFC_ASD_res_Cycle_validated <- as_data_frame(PFC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+PFC_Normal_res_Cycle_validated <- as_data_frame(PFC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Lower18_ASD_res_granger_validated <- as_data_frame(Lower18_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Lower18_Normal_res_granger_validated <- as_data_frame(Lower18_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Larger18_ASD_res_granger_validated <- as_data_frame(Larger18_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Larger18_Normal_res_granger_validated <- as_data_frame(Larger18_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Lower18_ASD_res_Cycle_validated <- as_data_frame(Lower18_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Lower18_Normal_res_Cycle_validated <- as_data_frame(Lower18_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Larger18_ASD_res_Cycle_validated <- as_data_frame(Larger18_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Larger18_Normal_res_Cycle_validated <- as_data_frame(Larger18_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Male_ASD_res_granger_validated <- as_data_frame(Male_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Male_Normal_res_granger_validated <- as_data_frame(Male_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Female_ASD_res_granger_validated <- as_data_frame(Female_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Female_Normal_res_granger_validated <- as_data_frame(Female_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Male_ASD_res_Cycle_validated <- as_data_frame(Male_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Male_Normal_res_Cycle_validated <- as_data_frame(Male_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Female_ASD_res_Cycle_validated <- as_data_frame(Female_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Female_Normal_res_Cycle_validated <- as_data_frame(Female_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-NeuNRGNII_ASD_res_granger_validated <- as_data_frame(NeuNRGNII_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-NeuNRGNII_Normal_res_granger_validated <- as_data_frame(NeuNRGNII_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_ASD_res_Cycle_validated <- as_data_frame(NeuNRGNII_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNII_Normal_res_Cycle_validated <- as_data_frame(NeuNRGNII_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-L56_ASD_res_granger_validated <- as_data_frame(L56_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-L56_Normal_res_granger_validated <- as_data_frame(L56_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L56_ASD_res_Cycle_validated <- as_data_frame(L56_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L56_Normal_res_Cycle_validated <- as_data_frame(L56_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Oligodendrocytes_ASD_res_granger_validated <- as_data_frame(Oligodendrocytes_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Oligodendrocytes_Normal_res_granger_validated <- as_data_frame(Oligodendrocytes_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_ASD_res_Cycle_validated <- as_data_frame(Oligodendrocytes_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Oligodendrocytes_Normal_res_Cycle_validated <- as_data_frame(Oligodendrocytes_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-OPC_ASD_res_granger_validated <- as_data_frame(OPC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-OPC_Normal_res_granger_validated <- as_data_frame(OPC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+OPC_ASD_res_Cycle_validated <- as_data_frame(OPC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+OPC_Normal_res_Cycle_validated <- as_data_frame(OPC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-ASTFB_ASD_res_granger_validated <- as_data_frame(ASTFB_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-ASTFB_Normal_res_granger_validated <- as_data_frame(ASTFB_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_ASD_res_Cycle_validated <- as_data_frame(ASTFB_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ASTFB_Normal_res_Cycle_validated <- as_data_frame(ASTFB_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Endothelial_ASD_res_granger_validated <- as_data_frame(Endothelial_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Endothelial_Normal_res_granger_validated <- as_data_frame(Endothelial_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_ASD_res_Cycle_validated <- as_data_frame(Endothelial_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Endothelial_Normal_res_Cycle_validated <- as_data_frame(Endothelial_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Microglia_ASD_res_granger_validated <- as_data_frame(Microglia_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Microglia_Normal_res_granger_validated <- as_data_frame(Microglia_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Microglia_ASD_res_Cycle_validated <- as_data_frame(Microglia_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Microglia_Normal_res_Cycle_validated <- as_data_frame(Microglia_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-NeuNRGNI_ASD_res_granger_validated <- as_data_frame(NeuNRGNI_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-NeuNRGNI_Normal_res_granger_validated <- as_data_frame(NeuNRGNI_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_ASD_res_Cycle_validated <- as_data_frame(NeuNRGNI_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+NeuNRGNI_Normal_res_Cycle_validated <- as_data_frame(NeuNRGNI_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-INVIP_ASD_res_granger_validated <- as_data_frame(INVIP_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-INVIP_Normal_res_granger_validated <- as_data_frame(INVIP_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INVIP_ASD_res_Cycle_validated <- as_data_frame(INVIP_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INVIP_Normal_res_Cycle_validated <- as_data_frame(INVIP_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-L56CC_ASD_res_granger_validated <- as_data_frame(L56CC_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-L56CC_Normal_res_granger_validated <- as_data_frame(L56CC_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L56CC_ASD_res_Cycle_validated <- as_data_frame(L56CC_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L56CC_Normal_res_Cycle_validated <- as_data_frame(L56CC_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-INSV2C_ASD_res_granger_validated <- as_data_frame(INSV2C_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-INSV2C_Normal_res_granger_validated <- as_data_frame(INSV2C_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_ASD_res_Cycle_validated <- as_data_frame(INSV2C_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INSV2C_Normal_res_Cycle_validated <- as_data_frame(INSV2C_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-L23_ASD_res_granger_validated <- as_data_frame(L23_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-L23_Normal_res_granger_validated <- as_data_frame(L23_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L23_ASD_res_Cycle_validated <- as_data_frame(L23_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L23_Normal_res_Cycle_validated <- as_data_frame(L23_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-INPV_ASD_res_granger_validated <- as_data_frame(INPV_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-INPV_Normal_res_granger_validated <- as_data_frame(INPV_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INPV_ASD_res_Cycle_validated <- as_data_frame(INPV_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INPV_Normal_res_Cycle_validated <- as_data_frame(INPV_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-L4_ASD_res_granger_validated <- as_data_frame(L4_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-L4_Normal_res_granger_validated <- as_data_frame(L4_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+L4_ASD_res_Cycle_validated <- as_data_frame(L4_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+L4_Normal_res_Cycle_validated <- as_data_frame(L4_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-INSST_ASD_res_granger_validated <- as_data_frame(INSST_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-INSST_Normal_res_granger_validated <- as_data_frame(INSST_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+INSST_ASD_res_Cycle_validated <- as_data_frame(INSST_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+INSST_Normal_res_Cycle_validated <- as_data_frame(INSST_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-Neumat_ASD_res_granger_validated <- as_data_frame(Neumat_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-Neumat_Normal_res_granger_validated <- as_data_frame(Neumat_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+Neumat_ASD_res_Cycle_validated <- as_data_frame(Neumat_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+Neumat_Normal_res_Cycle_validated <- as_data_frame(Neumat_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
-ASTPP_ASD_res_granger_validated <- as_data_frame(ASTPP_ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
-ASTPP_Normal_res_granger_validated <- as_data_frame(ASTPP_Normal_res_granger_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_ASD_res_Cycle_validated <- as_data_frame(ASTPP_ASD_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
+ASTPP_Normal_res_Cycle_validated <- as_data_frame(ASTPP_Normal_res_Cycle_graph %s% lncRTarget_groundtruth_graph)
 
 # Granger
 ASD_res_granger_validated <- as_data_frame(ASD_res_granger_graph %s% lncRTarget_groundtruth_graph)
